@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum MatchStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  POSTPONED
+  CANCELLED
+}
+
+enum Outcome {
+  TEAM_A
+  DRAW
+  TEAM_B
+}
+
+enum PredictionResult {
+  EXACT_SCORE
+  CORRECT_OUTCOME
+  WRONG
+  VOID
+}
+
+model User {
+  id           String       @id @default(uuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  role         Role         @default(USER)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  predictions  Prediction[]
+}
+
+model Match {
+  id                 String            @id @default(uuid())
+  teamA              String
+  teamB              String
+  group              String?
+  venue              String?
+  source             String?
+  sourceUpdatedAt    DateTime?
+  matchTime          DateTime
+  predictionDeadline DateTime
+  status             MatchStatus       @default(UPCOMING)
+  teamAScore         Int?
+  teamBScore         Int?
+  result             Outcome?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  predictions        Prediction[]
+
+  @@index([status])
+  @@index([matchTime])
+}
+
+model Prediction {
+  id                  String            @id @default(uuid())
+  userId              String
+  matchId             String
+  predictedResult     Outcome
+  predictedTeamAScore Int?
+  predictedTeamBScore Int?
+  pointsAwarded       Int               @default(0)
+  predictionResult    PredictionResult?
+  isCalculated        Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, matchId])
+  @@index([userId])
+  @@index([matchId])
+}
