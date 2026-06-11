@@ -6,7 +6,8 @@ import {
   updateMatch, 
   deleteMatch, 
   submitMatchResult, 
-  triggerRecalculate 
+  triggerRecalculate,
+  syncMatchesWithApi
 } from "@/app/actions/admin";
 import { 
   Settings, 
@@ -20,7 +21,8 @@ import {
   ChevronDown, 
   ChevronUp, 
   User as UserIcon,
-  AlertCircle
+  AlertCircle,
+  Activity
 } from "lucide-react";
 
 interface UserData {
@@ -64,6 +66,9 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [resultMatchId, setResultMatchId] = useState<string | null>(null);
+  const [syncSummary, setSyncSummary] = useState<any | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncPending, startSyncTransition] = useTransition();
   const [expandedPredictionsMatchId, setExpandedPredictionsMatchId] = useState<string | null>(null);
 
   // Form states
@@ -192,6 +197,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const handleRecalculate = async () => {
     setActionError(null);
     setActionSuccess(null);
+    setSyncError(null);
+    setSyncSummary(null);
 
     startTransition(async () => {
       const res = await triggerRecalculate();
@@ -199,6 +206,27 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
         setActionSuccess("All points recalculated successfully!");
       } else {
         setActionError(res.error || "Recalculation failed.");
+      }
+    });
+  };
+
+  const handleSync = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+    setSyncError(null);
+    setSyncSummary(null);
+
+    startSyncTransition(async () => {
+      try {
+        const res = await syncMatchesWithApi();
+        if (res.success) {
+          setActionSuccess("World Cup API scores synchronized successfully!");
+          setSyncSummary(res.summary);
+        } else {
+          setSyncError(res.error || "Failed to synchronize matches with API.");
+        }
+      } catch (err: any) {
+        setSyncError("An unexpected error occurred while running the sync. Please try again.");
       }
     });
   };
@@ -692,21 +720,125 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
 
       {/* TAB: System Actions */}
       {activeTab === "system" && (
-        <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl max-w-2xl space-y-4">
-          <h2 className="text-lg font-bold text-slate-200 border-b border-slate-850 pb-2">Administrative System Actions</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            In case points get out of sync or you need to force an update of all prediction points across the entire system based on current completed match results, use the trigger below. This process is fully idempotent and will not duplicate any points.
-          </p>
-          <div className="pt-3">
-            <button
-              onClick={handleRecalculate}
-              disabled={isActionPending}
-              className="flex items-center space-x-2 px-5 py-3 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-sm cursor-pointer transition-all active:scale-95"
-            >
-              <RefreshCw className={`h-4.5 w-4.5 ${isActionPending ? "animate-spin" : ""}`} />
-              <span>{isActionPending ? "Recalculating..." : "Force Recalculate Standings"}</span>
-            </button>
+        <div className="space-y-6 max-w-3xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Card 1: API Synchronization */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <Activity className="h-5 w-5" />
+                  <h3 className="text-md font-bold text-slate-200">World Cup API Sync</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Synchronize live scores, match timings, and completed results directly from the `worldcup26.ir` API. Completed matches will trigger points calculation automatically.
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={handleSync}
+                  disabled={isSyncPending || isActionPending}
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                >
+                  <Activity className={`h-4 w-4 ${isSyncPending ? "animate-pulse" : ""}`} />
+                  <span>{isSyncPending ? "Synchronizing..." : "Sync World Cup API Scores"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 2: Points Recalculation */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <RefreshCw className="h-5 w-5" />
+                  <h3 className="text-md font-bold text-slate-200">Recalculate Standings</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Force a full points recalculation for all predictions based on current completed match scores stored in the database. Fully idempotent and safe.
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={handleRecalculate}
+                  disabled={isSyncPending || isActionPending}
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isActionPending ? "animate-spin" : ""}`} />
+                  <span>{isActionPending ? "Recalculating..." : "Force Recalculate Standings"}</span>
+                </button>
+              </div>
+            </div>
+
           </div>
+
+          {/* Sync Results Display */}
+          {(syncSummary || syncError) && (
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider border-b border-slate-850 pb-2">
+                Sync Execution Report
+              </h3>
+              
+              {syncError && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl flex items-center space-x-2">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{syncError}</span>
+                </div>
+              )}
+
+              {syncSummary && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Total Fetched</span>
+                      <span className="text-lg font-black text-slate-100">{syncSummary.totalFetched}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Matched</span>
+                      <span className="text-lg font-black text-emerald-450">{syncSummary.matched}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Updated Live</span>
+                      <span className="text-lg font-black text-amber-450">{syncSummary.updatedLive}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Completed</span>
+                      <span className="text-lg font-black text-emerald-450">{syncSummary.completed}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Points Calc</span>
+                      <span className="text-lg font-black text-emerald-400">{syncSummary.pointsCalculated}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Skipped Upcoming</span>
+                      <span className="text-lg font-black text-slate-400">{syncSummary.skippedUpcoming}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Admin Finalized</span>
+                      <span className="text-lg font-black text-amber-500">{syncSummary.skippedAdminFinalized}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Unmatched</span>
+                      <span className="text-lg font-black text-red-400">{syncSummary.unmatched}</span>
+                    </div>
+                  </div>
+
+                  {syncSummary.errors && syncSummary.errors.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase block">Sync Warnings / Alerts</span>
+                      <div className="p-3.5 bg-amber-500/5 border border-amber-500/10 rounded-xl space-y-1 max-h-40 overflow-y-auto">
+                        {syncSummary.errors.map((err: string, idx: number) => (
+                          <div key={idx} className="text-[11px] text-amber-400 flex items-start space-x-1">
+                            <span className="text-amber-500 font-bold mr-1">•</span>
+                            <span>{err}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

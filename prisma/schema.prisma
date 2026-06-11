@@ -61,8 +61,14 @@ model Match {
   updatedAt          DateTime          @updatedAt
   predictions        Prediction[]
 
+  apiProvider        String?
+  apiMatchId         String?
+  scoreSource        String?
+  lastSyncedAt       DateTime?
+
   @@index([status])
   @@index([matchTime])
+  @@unique([apiProvider, apiMatchId])
 }
 
 model Prediction {
