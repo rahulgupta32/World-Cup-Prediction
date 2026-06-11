@@ -12,6 +12,13 @@ export async function submitPrediction(formData: FormData) {
     return { success: false, error: "You must be logged in to submit predictions." };
   }
 
+  const dbUser = await prisma.user.findUnique({
+    where: { id: sessionUser.userId },
+  });
+  if (!dbUser) {
+    return { success: false, error: "User session expired or database has been re-seeded. Please log out and log back in." };
+  }
+
   const matchId = formData.get("matchId")?.toString();
   const predictedResultInput = formData.get("predictedResult")?.toString() as Outcome | undefined;
   const scoreAString = formData.get("scoreA")?.toString();
