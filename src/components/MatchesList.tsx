@@ -48,6 +48,8 @@ interface MatchData {
   officialBroadcasterUrl?: string | null;
   liveCoverageUrl?: string | null;
   broadcasterName?: string | null;
+  broadcasterRegion?: string | null;
+  coverageNote?: string | null;
   streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE" | null;
   lastSyncedAt?: string | null;
 }
@@ -469,23 +471,17 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                   {/* Right: Predict / View predictions buttons */}
                   <div className="flex items-center space-x-2">
                     {/* Live Streaming Watch Button */}
-                    {match.officialMatchUrl || match.officialBroadcasterUrl || match.liveCoverageUrl ? (
-                      <button
-                        onClick={() => setSelectedDetailMatch(match)}
-                        className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer text-xs ${
-                          match.status === "LIVE"
-                            ? "bg-red-500 hover:bg-red-400 text-white animate-pulse shadow-md shadow-red-500/20"
-                            : "bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700"
-                        }`}
-                      >
-                        <Play className="h-3 w-3 fill-current" />
-                        <span>{match.status === "LIVE" ? "Watch / Follow Live" : "Watch Live"}</span>
-                      </button>
-                    ) : (
-                      <span className="text-[10px] text-slate-500 italic">
-                        Live coverage link not available yet.
-                      </span>
-                    )}
+                    <button
+                      onClick={() => setSelectedDetailMatch(match)}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer text-xs ${
+                        match.status === "LIVE"
+                          ? "bg-red-500 hover:bg-red-400 text-white animate-pulse shadow-md shadow-red-500/20"
+                          : "bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700"
+                      }`}
+                    >
+                      <Play className="h-3 w-3 fill-current" />
+                      <span>{match.status === "LIVE" ? "Watch / Follow Live" : "Watch Live / Coverage"}</span>
+                    </button>
 
                     {/* View all predictions if locked */}
                     {isMatchLocked && (
@@ -739,7 +735,7 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                     </div>
                     <div className="w-5/12 font-black text-slate-100 text-sm md:text-base">{match.teamB}</div>
                   </div>
-                  {match.status === "LIVE" && match.lastSyncedAt && (
+{match.status === "LIVE" && match.lastSyncedAt && (
                     <div className="text-[9px] text-emerald-400 font-bold mt-3.5 bg-emerald-500/5 border border-emerald-500/10 py-1 px-3 rounded-full w-max mx-auto">
                       ⚡ {getSyncTimeText(match.lastSyncedAt, clientNow)}
                     </div>
@@ -747,57 +743,122 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                 </div>
 
                 {/* Legal Streaming Section */}
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Live Match Coverage</span>
-                  {hasLegalStream ? (
-                    <div className="space-y-2.5">
+                  
+                  {/* Broadcaster Info Panel (Name, Region, Note) */}
+                  {(match.broadcasterName || match.broadcasterRegion || match.coverageNote) && (
+                    <div className="text-xs text-slate-350 bg-slate-950/40 border border-slate-850 p-3.5 rounded-xl space-y-1.5">
                       {match.broadcasterName && (
-                        <div className="text-xs text-slate-350 bg-slate-950/40 border border-slate-850 p-3 rounded-xl">
-                          <span className="font-bold text-slate-450">Official Broadcaster:</span> {match.broadcasterName}
+                        <div>
+                          <span className="font-bold text-slate-455">Official Broadcaster:</span> {match.broadcasterName}
                         </div>
                       )}
-                      
-                      <div className="flex flex-col gap-2">
-                        {match.officialMatchUrl && (
-                          <a
-                            href={match.officialMatchUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
-                          >
-                            <span>Official FIFA Match Center</span>
-                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                          </a>
-                        )}
-                        {match.officialBroadcasterUrl && (
-                          <a
-                            href={match.officialBroadcasterUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
-                          >
-                            <span>Watch Stream on {match.broadcasterName || "Official Broadcaster"}</span>
-                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                          </a>
-                        )}
-                        {match.liveCoverageUrl && (
-                          <a
-                            href={match.liveCoverageUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
-                          >
-                            <span>Official Live Audio / Text Coverage</span>
-                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl text-center text-xs text-slate-500 italic">
-                      Live coverage link not available yet.
+                      {match.broadcasterRegion && (
+                        <div>
+                          <span className="font-bold text-slate-455">Target Region:</span> {match.broadcasterRegion}
+                        </div>
+                      )}
+                      {match.coverageNote && (
+                        <div className="text-amber-400 text-[11px] font-medium bg-amber-500/5 border border-amber-500/10 p-1.5 rounded-lg mt-1">
+                          <span className="font-bold">Note:</span> {match.coverageNote}
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {hasLegalStream ? (
+                    <div className="flex flex-col gap-2">
+                      {match.officialMatchUrl && (
+                        <a
+                          href={match.officialMatchUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                        >
+                          <span>Official FIFA Match Center</span>
+                          <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                        </a>
+                      )}
+                      {match.officialBroadcasterUrl && (
+                        <a
+                          href={match.officialBroadcasterUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                        >
+                          <span>Watch Stream on {match.broadcasterName || "Official Broadcaster"}</span>
+                          <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                        </a>
+                      )}
+                      {match.liveCoverageUrl && (
+                        <a
+                          href={match.liveCoverageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                        >
+                          <span>Official Live Audio / Text Coverage</span>
+                          <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl text-center text-xs text-slate-450 leading-relaxed">
+                        Live video coverage is not available yet. You can still follow live score updates here.
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alternative Streaming Mirrors</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <a
+                            href="https://www.totalsportek.to"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950 border border-slate-850 rounded-xl hover:border-red-500/20 hover:bg-slate-900/30 transition-all font-bold text-xs text-slate-300 hover:text-white group"
+                          >
+                            <span>TotalSportek</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-red-400 transition-colors" />
+                          </a>
+                          <a
+                            href="https://www.totalsportekz.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950 border border-slate-850 rounded-xl hover:border-red-500/20 hover:bg-slate-900/30 transition-all font-bold text-xs text-slate-300 hover:text-white group"
+                          >
+                            <span>TotalSportekz</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-red-400 transition-colors" />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Static Regional Broadcaster Helper Info */}
+                  <div className="p-4 bg-slate-950/20 border border-slate-850 rounded-xl space-y-2.5">
+                    <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      Official TV Broadcasters by Region
+                    </span>
+                    <div className="grid grid-cols-2 gap-2.5 text-[11px] leading-tight">
+                      <div className="flex flex-col text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-500">🇺🇸 USA</span>
+                        <span className="font-bold text-slate-300">FOX / Telemundo</span>
+                      </div>
+                      <div className="flex flex-col text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-500">🇬🇧 UK</span>
+                        <span className="font-bold text-slate-300">BBC / ITV</span>
+                      </div>
+                      <div className="flex flex-col text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-500">🇨🇦 Canada</span>
+                        <span className="font-bold text-slate-300">TSN / CTV / RDS</span>
+                      </div>
+                      <div className="flex flex-col text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-500">🇮🇳/🇳🇵 India & Nepal</span>
+                        <span className="font-bold text-slate-300">Sports18 / JioCinema</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* User Prediction */}

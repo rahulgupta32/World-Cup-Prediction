@@ -58,6 +58,8 @@ interface MatchData {
   officialBroadcasterUrl?: string | null;
   liveCoverageUrl?: string | null;
   broadcasterName?: string | null;
+  broadcasterRegion?: string | null;
+  coverageNote?: string | null;
   streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE";
 }
 
@@ -94,6 +96,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [editOfficialBroadcasterUrl, setEditOfficialBroadcasterUrl] = useState("");
   const [editLiveCoverageUrl, setEditLiveCoverageUrl] = useState("");
   const [editBroadcasterName, setEditBroadcasterName] = useState("");
+  const [editBroadcasterRegion, setEditBroadcasterRegion] = useState("");
+  const [editCoverageNote, setEditCoverageNote] = useState("");
   const [editStreamSourceType, setEditStreamSourceType] = useState<"OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE">("NONE");
 
   const [resultScoreA, setResultScoreA] = useState("");
@@ -119,6 +123,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setEditOfficialBroadcasterUrl(match.officialBroadcasterUrl || "");
     setEditLiveCoverageUrl(match.liveCoverageUrl || "");
     setEditBroadcasterName(match.broadcasterName || "");
+    setEditBroadcasterRegion(match.broadcasterRegion || "");
+    setEditCoverageNote(match.coverageNote || "");
     setEditStreamSourceType(match.streamSourceType || "NONE");
   };
 
@@ -181,6 +187,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     formData.append("officialBroadcasterUrl", editOfficialBroadcasterUrl);
     formData.append("liveCoverageUrl", editLiveCoverageUrl);
     formData.append("broadcasterName", editBroadcasterName);
+    formData.append("broadcasterRegion", editBroadcasterRegion);
+    formData.append("coverageNote", editCoverageNote);
     formData.append("streamSourceType", editStreamSourceType);
 
     startTransition(async () => {
@@ -418,7 +426,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 <div className="border-t border-slate-850 pt-4 mt-4 space-y-4">
                   <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Broadcast & Coverage Links</h4>
                   <div className="text-[10px] text-slate-400 bg-slate-950 border border-slate-850 p-2.5 rounded-xl">
-                    <span className="font-bold text-amber-500">Notice:</span> Use only official broadcaster, FIFA, or legally authorized live coverage links. Do NOT include unauthorized stream urls or pirated site links.
+                    <span className="font-bold text-amber-500">Notice:</span> Only use official broadcaster, FIFA, or legally authorized coverage links. Else use pirate stream aggregators or unofficial mirror links.
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -441,6 +449,25 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                         name="broadcasterName"
                         className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         placeholder="e.g. Fox Sports, BBC"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Broadcaster Region</label>
+                      <input
+                        name="broadcasterRegion"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="e.g. US, UK, Global"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Coverage Note</label>
+                      <input
+                        name="coverageNote"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="e.g. Free stream, requires subscription"
                       />
                     </div>
                   </div>
@@ -653,7 +680,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                         <div className="border-t border-slate-850 pt-4 mt-4 space-y-4">
                           <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Broadcast & Coverage Links</h5>
                           <div className="text-[10px] text-slate-400 bg-slate-950 border border-slate-850 p-2.5 rounded-xl">
-                            <span className="font-bold text-amber-500">Notice:</span> Use only official broadcaster, FIFA, or legally authorized live coverage links. Do NOT include unauthorized stream urls or pirated site links.
+                            <span className="font-bold text-amber-500">Notice:</span> Only use official broadcaster, FIFA, or legally authorized coverage links. Else use pirate stream aggregators or unofficial mirror links.
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -678,6 +705,27 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                                 onChange={(e) => setEditBroadcasterName(e.target.value)}
                                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
                                 placeholder="e.g. Fox Sports, BBC"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Broadcaster Region</label>
+                              <input
+                                value={editBroadcasterRegion}
+                                onChange={(e) => setEditBroadcasterRegion(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="e.g. US, UK, Global"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Coverage Note</label>
+                              <input
+                                value={editCoverageNote}
+                                onChange={(e) => setEditCoverageNote(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="e.g. Free stream, requires subscription"
                               />
                             </div>
                           </div>

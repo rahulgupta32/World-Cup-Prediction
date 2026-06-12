@@ -36,6 +36,8 @@ export async function createMatch(prevState: any, formData: FormData) {
   const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
   const liveCoverageUrl = formData.get("liveCoverageUrl")?.toString().trim() || null;
   const broadcasterName = formData.get("broadcasterName")?.toString().trim() || null;
+  const broadcasterRegion = formData.get("broadcasterRegion")?.toString().trim() || null;
+  const coverageNote = formData.get("coverageNote")?.toString().trim() || null;
   const streamSourceType = (formData.get("streamSourceType")?.toString() as StreamSourceType) || StreamSourceType.NONE;
 
   if (!teamA || !teamB || !matchTimeInput || !predictionDeadlineInput) {
@@ -73,6 +75,8 @@ export async function createMatch(prevState: any, formData: FormData) {
         officialBroadcasterUrl,
         liveCoverageUrl,
         broadcasterName,
+        broadcasterRegion,
+        coverageNote,
         streamSourceType,
       },
     });
@@ -106,6 +110,8 @@ export async function updateMatch(matchId: string, formData: FormData) {
   const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
   const liveCoverageUrl = formData.get("liveCoverageUrl")?.toString().trim() || null;
   const broadcasterName = formData.get("broadcasterName")?.toString().trim() || null;
+  const broadcasterRegion = formData.get("broadcasterRegion")?.toString().trim() || null;
+  const coverageNote = formData.get("coverageNote")?.toString().trim() || null;
   const streamSourceType = (formData.get("streamSourceType")?.toString() as StreamSourceType) || StreamSourceType.NONE;
 
   if (!teamA || !teamB || !matchTimeInput || !predictionDeadlineInput || !status) {
@@ -150,6 +156,8 @@ export async function updateMatch(matchId: string, formData: FormData) {
         officialBroadcasterUrl,
         liveCoverageUrl,
         broadcasterName,
+        broadcasterRegion,
+        coverageNote,
         streamSourceType,
       },
     });
