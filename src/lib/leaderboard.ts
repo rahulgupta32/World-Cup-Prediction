@@ -7,8 +7,8 @@ export interface LeaderboardEntry {
   email: string;
   role: string;
   totalPoints: number;
-  correctPredictions: number; // Represents CORRECT_OUTCOME + EXACT_SCORE
-  exactScoreCount: number;     // Represents EXACT_SCORE only
+  correctOutcomeCount: number; // Represents CORRECT_OUTCOME (+2) only
+  exactScoreCount: number;      // Represents EXACT_SCORE (+5) only
   wrongPredictions: number;
   missedPredictions: number;
   submittedCompletedCount: number;
@@ -82,7 +82,6 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
     if (p.predictionResult === "EXACT_SCORE") {
       stats.exactScoreCount += 1;
-      stats.correctOutcomeCount += 1;
     } else if (p.predictionResult === "CORRECT_OUTCOME") {
       stats.correctOutcomeCount += 1;
     } else if (p.predictionResult === "WRONG") {
@@ -101,7 +100,8 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       submittedCount: 0,
     };
     const missed = completedOrCancelledMatchesCount - stats.submittedCount;
-    const accuracy = stats.submittedCount > 0 ? (stats.correctOutcomeCount / stats.submittedCount) * 100 : 0;
+    const totalCorrect = stats.exactScoreCount + stats.correctOutcomeCount;
+    const accuracy = stats.submittedCount > 0 ? (totalCorrect / stats.submittedCount) * 100 : 0;
 
     return {
       rank: 0, // Assigned after sorting
@@ -110,7 +110,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       email: u.email,
       role: u.role,
       totalPoints: stats.totalPoints,
-      correctPredictions: stats.correctOutcomeCount,
+      correctOutcomeCount: stats.correctOutcomeCount,
       exactScoreCount: stats.exactScoreCount,
       wrongPredictions: stats.wrongPredictions,
       missedPredictions: missed,
@@ -128,8 +128,8 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     if (b.exactScoreCount !== a.exactScoreCount) {
       return b.exactScoreCount - a.exactScoreCount;
     }
-    if (b.correctPredictions !== a.correctPredictions) {
-      return b.correctPredictions - a.correctPredictions;
+    if (b.correctOutcomeCount !== a.correctOutcomeCount) {
+      return b.correctOutcomeCount - a.correctOutcomeCount;
     }
     if (a.wrongPredictions !== b.wrongPredictions) {
       return a.wrongPredictions - b.wrongPredictions;
@@ -146,7 +146,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       const isTie =
         prev.totalPoints === curr.totalPoints &&
         prev.exactScoreCount === curr.exactScoreCount &&
-        prev.correctPredictions === curr.correctPredictions &&
+        prev.correctOutcomeCount === curr.correctOutcomeCount &&
         prev.wrongPredictions === curr.wrongPredictions;
 
       if (!isTie) {

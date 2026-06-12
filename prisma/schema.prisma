@@ -25,6 +25,14 @@ enum Outcome {
   TEAM_B
 }
 
+enum StreamSourceType {
+  OFFICIAL
+  BROADCASTER
+  FIFA
+  ADMIN_LINK
+  NONE
+}
+
 enum PredictionResult {
   EXACT_SCORE
   CORRECT_OUTCOME
@@ -44,27 +52,33 @@ model User {
 }
 
 model Match {
-  id                 String            @id @default(uuid())
-  teamA              String
-  teamB              String
-  group              String?
-  venue              String?
-  source             String?
-  sourceUpdatedAt    DateTime?
-  matchTime          DateTime
-  predictionDeadline DateTime
-  status             MatchStatus       @default(UPCOMING)
-  teamAScore         Int?
-  teamBScore         Int?
-  result             Outcome?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  predictions        Prediction[]
+  id                     String            @id @default(uuid())
+  teamA                  String
+  teamB                  String
+  group                  String?
+  venue                  String?
+  source                 String?
+  sourceUpdatedAt        DateTime?
+  matchTime              DateTime
+  predictionDeadline     DateTime
+  status                 MatchStatus       @default(UPCOMING)
+  teamAScore             Int?
+  teamBScore             Int?
+  result                 Outcome?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  predictions            Prediction[]
 
-  apiProvider        String?
-  apiMatchId         String?
-  scoreSource        String?
-  lastSyncedAt       DateTime?
+  apiProvider            String?
+  apiMatchId             String?
+  scoreSource            String?
+  lastSyncedAt           DateTime?
+
+  officialMatchUrl       String?
+  officialBroadcasterUrl String?
+  liveCoverageUrl        String?
+  broadcasterName        String?
+  streamSourceType       StreamSourceType  @default(NONE)
 
   @@index([status])
   @@index([matchTime])

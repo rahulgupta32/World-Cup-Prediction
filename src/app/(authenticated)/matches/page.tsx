@@ -61,6 +61,12 @@ export default async function MatchesPage({ searchParams }: PageProps) {
       teamBScore: match.teamBScore,
       result: match.result,
       isLocked,
+      officialMatchUrl: match.officialMatchUrl,
+      officialBroadcasterUrl: match.officialBroadcasterUrl,
+      liveCoverageUrl: match.liveCoverageUrl,
+      broadcasterName: match.broadcasterName,
+      streamSourceType: match.streamSourceType,
+      lastSyncedAt: match.lastSyncedAt ? match.lastSyncedAt.toISOString() : null,
       userPrediction: userPrediction
         ? {
             id: userPrediction.id,

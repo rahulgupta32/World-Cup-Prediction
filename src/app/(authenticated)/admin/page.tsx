@@ -65,6 +65,11 @@ export default async function AdminPage() {
     teamAScore: match.teamAScore,
     teamBScore: match.teamBScore,
     result: match.result,
+    officialMatchUrl: match.officialMatchUrl,
+    officialBroadcasterUrl: match.officialBroadcasterUrl,
+    liveCoverageUrl: match.liveCoverageUrl,
+    broadcasterName: match.broadcasterName,
+    streamSourceType: match.streamSourceType,
     predictions: match.predictions.map((p) => ({
       id: p.id,
       userId: p.userId,

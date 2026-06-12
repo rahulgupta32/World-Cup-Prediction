@@ -4,7 +4,20 @@ import { prisma } from "@/lib/db";
 import { verifyAdminAction } from "@/lib/auth";
 import { getResultFromScore, calculateMatchPoints, recalculateAllPoints } from "@/lib/scoring";
 import { revalidatePath } from "next/cache";
-import { Outcome, MatchStatus } from "@prisma/client";
+import { Outcome, MatchStatus, StreamSourceType } from "@prisma/client";
+
+function isValidHttpUrl(stringStr: string | null | undefined): boolean {
+  if (!stringStr) return true;
+  const trimmed = stringStr.trim();
+  if (trimmed === "") return true;
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
 
 export async function createMatch(prevState: any, formData: FormData) {
   const { authenticated } = await verifyAdminAction();
@@ -19,8 +32,18 @@ export async function createMatch(prevState: any, formData: FormData) {
   const group = formData.get("group")?.toString().trim() || null;
   const venue = formData.get("venue")?.toString().trim() || null;
 
+  const officialMatchUrl = formData.get("officialMatchUrl")?.toString().trim() || null;
+  const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
+  const liveCoverageUrl = formData.get("liveCoverageUrl")?.toString().trim() || null;
+  const broadcasterName = formData.get("broadcasterName")?.toString().trim() || null;
+  const streamSourceType = (formData.get("streamSourceType")?.toString() as StreamSourceType) || StreamSourceType.NONE;
+
   if (!teamA || !teamB || !matchTimeInput || !predictionDeadlineInput) {
     return { success: false, error: "All fields are required." };
+  }
+
+  if (!isValidHttpUrl(officialMatchUrl) || !isValidHttpUrl(officialBroadcasterUrl) || !isValidHttpUrl(liveCoverageUrl)) {
+    return { success: false, error: "Invalid live coverage URL. Only http:// and https:// links are allowed." };
   }
 
   const matchTime = new Date(matchTimeInput);
@@ -46,6 +69,11 @@ export async function createMatch(prevState: any, formData: FormData) {
         venue,
         source: "Admin Panel",
         sourceUpdatedAt: new Date(),
+        officialMatchUrl,
+        officialBroadcasterUrl,
+        liveCoverageUrl,
+        broadcasterName,
+        streamSourceType,
       },
     });
 
@@ -74,8 +102,18 @@ export async function updateMatch(matchId: string, formData: FormData) {
   const group = formData.get("group")?.toString().trim() || null;
   const venue = formData.get("venue")?.toString().trim() || null;
 
+  const officialMatchUrl = formData.get("officialMatchUrl")?.toString().trim() || null;
+  const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
+  const liveCoverageUrl = formData.get("liveCoverageUrl")?.toString().trim() || null;
+  const broadcasterName = formData.get("broadcasterName")?.toString().trim() || null;
+  const streamSourceType = (formData.get("streamSourceType")?.toString() as StreamSourceType) || StreamSourceType.NONE;
+
   if (!teamA || !teamB || !matchTimeInput || !predictionDeadlineInput || !status) {
     return { success: false, error: "All fields are required." };
+  }
+
+  if (!isValidHttpUrl(officialMatchUrl) || !isValidHttpUrl(officialBroadcasterUrl) || !isValidHttpUrl(liveCoverageUrl)) {
+    return { success: false, error: "Invalid live coverage URL. Only http:// and https:// links are allowed." };
   }
 
   const matchTime = new Date(matchTimeInput);
@@ -108,6 +146,11 @@ export async function updateMatch(matchId: string, formData: FormData) {
         source: "Admin Panel",
         sourceUpdatedAt: new Date(),
         scoreSource: "ADMIN",
+        officialMatchUrl,
+        officialBroadcasterUrl,
+        liveCoverageUrl,
+        broadcasterName,
+        streamSourceType,
       },
     });
 
@@ -267,6 +310,8 @@ export type NormalizedApiMatch = {
   scoreB: number | null;
   isCancelled: boolean;
   isPostponed: boolean;
+  officialMatchUrl?: string | null;
+  liveCoverageUrl?: string | null;
 };
 
 function parseLocalDate(localDateStr: string, stadiumId: string): Date | null {
@@ -347,6 +392,11 @@ function toNormalizedApiMatch(game: any): NormalizedApiMatch {
   const isCancelled = timeElapsedStr === "cancelled" || timeElapsedStr === "void";
   const isPostponed = timeElapsedStr === "postponed" || timeElapsedStr === "delayed";
 
+  const rawOfficialUrl = game.official_match_url || game.officialMatchUrl || game.match_url || game.url || null;
+  const rawLiveUrl = game.live_coverage_url || game.liveCoverageUrl || null;
+  const officialMatchUrl = isValidHttpUrl(rawOfficialUrl) ? rawOfficialUrl : null;
+  const liveCoverageUrl = isValidHttpUrl(rawLiveUrl) ? rawLiveUrl : null;
+
   return {
     apiProvider: "worldcup26.ir",
     apiMatchId: game.id ? String(game.id) : null,
@@ -358,6 +408,8 @@ function toNormalizedApiMatch(game: any): NormalizedApiMatch {
     scoreB: scoreB !== null && !isNaN(scoreB) ? scoreB : null,
     isCancelled,
     isPostponed,
+    officialMatchUrl,
+    liveCoverageUrl,
   };
 }
 
@@ -477,6 +529,14 @@ export async function syncMatchesWithApi() {
         const apiScoreA = isSwapped ? normalized.scoreB : normalized.scoreA;
         const apiScoreB = isSwapped ? normalized.scoreA : normalized.scoreB;
 
+        const apiUrls: any = {};
+        if (normalized.officialMatchUrl) {
+          apiUrls.officialMatchUrl = normalized.officialMatchUrl;
+        }
+        if (normalized.liveCoverageUrl) {
+          apiUrls.liveCoverageUrl = normalized.liveCoverageUrl;
+        }
+
         // Check if API says cancelled or postponed
         if (normalized.isCancelled) {
           summary.errors.push(`Match warning: ${match.teamA} vs ${match.teamB} is marked as CANCELLED/VOID in API. Status updated to CANCELLED.`);
@@ -489,6 +549,7 @@ export async function syncMatchesWithApi() {
               apiProvider: "worldcup26.ir",
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
+              ...apiUrls,
             },
           });
           continue;
@@ -505,6 +566,7 @@ export async function syncMatchesWithApi() {
               apiProvider: "worldcup26.ir",
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
+              ...apiUrls,
             },
           });
           continue;
@@ -532,6 +594,7 @@ export async function syncMatchesWithApi() {
                 apiProvider: "worldcup26.ir",
                 apiMatchId: normalized.apiMatchId,
                 lastSyncedAt: new Date(),
+                ...apiUrls,
               },
             });
           });
@@ -555,6 +618,7 @@ export async function syncMatchesWithApi() {
               apiProvider: "worldcup26.ir",
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
+              ...apiUrls,
             },
           });
           summary.updatedLive++;
@@ -578,6 +642,7 @@ export async function syncMatchesWithApi() {
             apiProvider: "worldcup26.ir",
             apiMatchId: normalized.apiMatchId,
             lastSyncedAt: new Date(),
+            ...apiUrls,
           };
 
           if (match.status === MatchStatus.UPCOMING && normalized.kickoffUtc) {

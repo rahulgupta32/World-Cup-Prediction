@@ -14,6 +14,15 @@ import {
   PlayCircle
 } from "lucide-react";
 
+function formatSyncTime(date: Date | null): string {
+  if (!date) return "";
+  const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "Just synced";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 1) return "Last synced 1 min ago";
+  return `Last synced ${minutes} min ago`;
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -25,11 +34,14 @@ export default async function DashboardPage() {
   const userStats = leaderboard.find((entry) => entry.userId === sessionUser.userId) || {
     rank: leaderboard.length + 1,
     totalPoints: 0,
-    correctPredictions: 0,
+    correctOutcomeCount: 0,
+    exactScoreCount: 0,
     wrongPredictions: 0,
     missedPredictions: 0,
     accuracy: 0,
   };
+
+  const totalCorrect = userStats.exactScoreCount + userStats.correctOutcomeCount;
 
   // 2. Fetch upcoming matches that need predictions
   // An upcoming match needs a prediction if predictionDeadline is in the future
@@ -55,7 +67,9 @@ export default async function DashboardPage() {
 
   // 3. Fetch recently completed matches
   const recentCompletedMatches = await prisma.match.findMany({
-    where: { status: "COMPLETED" },
+    where: {
+      status: { in: ["COMPLETED", "CANCELLED"] },
+    },
     include: {
       predictions: {
         where: { userId: sessionUser.userId },
@@ -125,7 +139,7 @@ export default async function DashboardPage() {
           <div className="mt-4 flex flex-col">
             <span className="text-3xl font-black text-slate-100">{userStats.accuracy}%</span>
             <span className="text-xs text-slate-400 mt-1">
-              <span className="text-emerald-400 font-semibold">{userStats.correctPredictions}</span> correct,{" "}
+              <span className="text-emerald-400 font-semibold">{totalCorrect}</span> correct,{" "}
               <span className="text-red-400 font-semibold">{userStats.wrongPredictions}</span> wrong
             </span>
           </div>
@@ -166,9 +180,17 @@ export default async function DashboardPage() {
                         <span className="bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[10px]">
                           Live
                         </span>
-                        <span>
-                          Started: {new Date(match.matchTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                        <div className="flex items-center space-x-2 text-[10px] text-slate-500">
+                          <span>
+                            Started: {new Date(match.matchTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {match.lastSyncedAt && (
+                            <>
+                              <span>•</span>
+                              <span className="font-semibold text-emerald-500">{formatSyncTime(match.lastSyncedAt)}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between py-2">
                         <div className="flex items-center space-x-3 w-1/3">
@@ -290,17 +312,22 @@ export default async function DashboardPage() {
                         <span>{new Date(match.matchTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
                         {pred ? (
                           <span className={`font-bold px-1.5 py-0.5 rounded-md ${
-                            points > 0 
-                              ? "bg-emerald-500/10 text-emerald-400" 
-                              : points < 0 
-                              ? "bg-red-500/10 text-red-400" 
-                              : "bg-slate-800 text-slate-400"
+                            pred.predictionResult === "EXACT_SCORE"
+                              ? "bg-amber-400/10 text-amber-450 border border-amber-400/20"
+                              : pred.predictionResult === "CORRECT_OUTCOME"
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : pred.predictionResult === "VOID"
+                              ? "bg-slate-800 text-slate-400 border border-slate-750"
+                              : "bg-red-500/10 text-red-400 border border-red-500/20"
                           }`}>
-                            {points > 0 ? `+${points}` : points} pts
+                            {pred.predictionResult === "EXACT_SCORE" && "+5 pts · Exact Score"}
+                            {pred.predictionResult === "CORRECT_OUTCOME" && "+2 pts · Correct Outcome"}
+                            {pred.predictionResult === "WRONG" && "-1 pt · Wrong"}
+                            {pred.predictionResult === "VOID" && "0 pts · Void"}
                           </span>
                         ) : (
-                          <span className="bg-slate-950 text-slate-500 font-bold px-1.5 py-0.5 rounded-md">
-                            0 pts (Missed)
+                          <span className="bg-slate-950 text-slate-500 font-bold px-1.5 py-0.5 rounded-md border border-slate-850">
+                            0 pts · Missed
                           </span>
                         )}
                       </div>

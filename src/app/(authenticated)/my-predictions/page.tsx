@@ -122,23 +122,41 @@ export default async function MyPredictionsPage() {
                           <span className="font-extrabold text-red-400">
                             {match.teamAScore ?? 0} - {match.teamBScore ?? 0}
                           </span>
+                        ) : match.status === "CANCELLED" ? (
+                          <span className="text-rose-500 font-bold text-xs uppercase">Cancelled</span>
                         ) : (
                           <span className="text-slate-600 text-xs italic">Not started</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {!isMatchCompleted ? (
+                        {match.status === "UPCOMING" || match.status === "LIVE" || match.status === "POSTPONED" ? (
                           <span className="text-slate-500 text-xs italic">Pending</span>
                         ) : (
-                          <span className={`font-black text-sm px-2 py-0.5 rounded ${
-                            points > 0 
-                              ? "bg-emerald-500/10 text-emerald-400" 
-                              : points < 0 
-                              ? "bg-red-500/10 text-red-400" 
-                              : "bg-slate-800 text-slate-400"
-                          }`}>
-                            {points > 0 ? `+${points}` : points}
-                          </span>
+                          <div className="flex flex-col items-center space-y-1">
+                            <span className={`font-black text-sm px-2 py-0.5 rounded ${
+                              points > 0 
+                                ? "bg-emerald-500/10 text-emerald-400" 
+                                : points < 0 
+                                ? "bg-red-500/10 text-red-400" 
+                                : "bg-slate-800 text-slate-400"
+                            }`}>
+                              {points > 0 ? `+${points}` : points}
+                            </span>
+                            <span className={`text-[9px] uppercase font-black px-1.5 py-0.5 rounded ${
+                              pred.predictionResult === "EXACT_SCORE"
+                                ? "bg-amber-400/10 text-amber-450 border border-amber-400/20"
+                                : pred.predictionResult === "CORRECT_OUTCOME"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : pred.predictionResult === "VOID"
+                                ? "bg-slate-800 text-slate-400 border border-slate-750"
+                                : "bg-red-500/10 text-red-400 border border-red-500/20"
+                            }`}>
+                              {pred.predictionResult === "EXACT_SCORE" && "Exact Score"}
+                              {pred.predictionResult === "CORRECT_OUTCOME" && "Correct Outcome"}
+                              {pred.predictionResult === "WRONG" && "Wrong"}
+                              {pred.predictionResult === "VOID" && "Void"}
+                            </span>
+                          </div>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center text-xs text-slate-500 hidden md:table-cell">

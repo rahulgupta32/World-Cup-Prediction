@@ -140,9 +140,10 @@ export default async function LeaderboardPage() {
                     <th className="px-6 py-3.5 text-center w-16">Rank</th>
                     <th className="px-6 py-3.5">User</th>
                     <th className="px-6 py-3.5 text-center">Points</th>
-                    <th className="px-6 py-3.5 text-center text-emerald-400">Wins</th>
-                    <th className="px-6 py-3.5 text-center text-red-400">Losses</th>
-                    <th className="px-6 py-3.5 text-center text-slate-400">Missed</th>
+                    <th className="px-6 py-3.5 text-center text-amber-400">Exact Score (+5)</th>
+                    <th className="px-6 py-3.5 text-center text-emerald-400">Correct Outcome (+2)</th>
+                    <th className="px-6 py-3.5 text-center text-red-400">Wrong (-1)</th>
+                    <th className="px-6 py-3.5 text-center text-slate-400">Missed (0)</th>
                     <th className="px-6 py-3.5 text-center">Accuracy</th>
                   </tr>
                 </thead>
@@ -195,8 +196,11 @@ export default async function LeaderboardPage() {
                         <td className="px-6 py-4 text-center font-black text-slate-100">
                           {entry.totalPoints}
                         </td>
+                        <td className="px-6 py-4 text-center font-bold text-amber-450">
+                          {entry.exactScoreCount}
+                        </td>
                         <td className="px-6 py-4 text-center font-bold text-emerald-400">
-                          {entry.correctPredictions}
+                          {entry.correctOutcomeCount}
                         </td>
                         <td className="px-6 py-4 text-center font-bold text-red-400">
                           {entry.wrongPredictions}

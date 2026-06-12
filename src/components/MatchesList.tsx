@@ -11,7 +11,9 @@ import {
   ChevronUp, 
   Lock, 
   User as UserIcon,
-  HelpCircle
+  HelpCircle,
+  ExternalLink,
+  Play
 } from "lucide-react";
 
 interface PredictionData {
@@ -42,6 +44,12 @@ interface MatchData {
   result: "TEAM_A" | "DRAW" | "TEAM_B" | null;
   userPrediction: PredictionData | null;
   predictions: PredictionData[];
+  officialMatchUrl?: string | null;
+  officialBroadcasterUrl?: string | null;
+  liveCoverageUrl?: string | null;
+  broadcasterName?: string | null;
+  streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE" | null;
+  lastSyncedAt?: string | null;
 }
 
 interface MatchesListProps {
@@ -50,10 +58,21 @@ interface MatchesListProps {
   searchParamsPredictId?: string;
 }
 
+function getSyncTimeText(dateStr: string | null | undefined, now: Date): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (seconds < 60) return "Just synced";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 1) return "Last synced 1 min ago";
+  return `Last synced ${minutes} min ago`;
+}
+
 export default function MatchesList({ initialMatches, currentUserId, searchParamsPredictId }: MatchesListProps) {
   const [activeTab, setActiveTab] = useState<"upcoming" | "live" | "completed">("upcoming");
   const [expandedPredictMatchId, setExpandedPredictMatchId] = useState<string | null>(searchParamsPredictId || null);
   const [expandedPredictionsMatchId, setExpandedPredictionsMatchId] = useState<string | null>(null);
+  const [selectedDetailMatch, setSelectedDetailMatch] = useState<MatchData | null>(null);
   
   const [predictedResult, setPredictedResult] = useState<"TEAM_A" | "DRAW" | "TEAM_B" | "">("");
   const [scoreA, setScoreA] = useState<string>("");
@@ -318,9 +337,16 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                     {match.status === "UPCOMING" ? (
                       <CountdownTimer deadline={match.predictionDeadline} />
                     ) : match.status === "LIVE" ? (
-                      <span className="flex items-center text-red-400 font-bold bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider animate-pulse">
-                        Live
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        {match.lastSyncedAt && (
+                          <span className="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                            {getSyncTimeText(match.lastSyncedAt, clientNow)}
+                          </span>
+                        )}
+                        <span className="flex items-center text-red-400 font-bold bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider animate-pulse">
+                          Live
+                        </span>
+                      </div>
                     ) : match.status === "POSTPONED" ? (
                       <span className="flex items-center text-amber-500 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">
                         Postponed
@@ -442,6 +468,25 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
 
                   {/* Right: Predict / View predictions buttons */}
                   <div className="flex items-center space-x-2">
+                    {/* Live Streaming Watch Button */}
+                    {match.officialMatchUrl || match.officialBroadcasterUrl || match.liveCoverageUrl ? (
+                      <button
+                        onClick={() => setSelectedDetailMatch(match)}
+                        className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer text-xs ${
+                          match.status === "LIVE"
+                            ? "bg-red-500 hover:bg-red-400 text-white animate-pulse shadow-md shadow-red-500/20"
+                            : "bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700"
+                        }`}
+                      >
+                        <Play className="h-3 w-3 fill-current" />
+                        <span>{match.status === "LIVE" ? "Watch / Follow Live" : "Watch Live"}</span>
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 italic">
+                        Live coverage link not available yet.
+                      </span>
+                    )}
+
                     {/* View all predictions if locked */}
                     {isMatchLocked && (
                       <button
@@ -638,6 +683,191 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
           })}
         </div>
       )}
+
+      {/* Live Match detail modal */}
+      {selectedDetailMatch && (() => {
+        const match = selectedDetailMatch;
+        const matchDate = new Date(match.matchTime);
+        const hasLegalStream = !!(match.officialMatchUrl || match.officialBroadcasterUrl || match.liveCoverageUrl);
+        const isMatchLocked = clientNow >= new Date(match.predictionDeadline) || match.status !== "UPCOMING";
+        
+        return (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-250 flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="px-6 py-4 bg-slate-950/60 border-b border-slate-800 flex justify-between items-center">
+                <div className="flex flex-col">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Match Detail</span>
+                    {match.status === "LIVE" && (
+                      <span className="bg-red-500/15 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse">
+                        Live
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                    {matchDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} at {matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setSelectedDetailMatch(null)}
+                  className="text-slate-400 hover:text-white transition-all text-xs font-bold bg-slate-850 px-3 py-1.5 rounded-xl border border-slate-750 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                {/* Score Area */}
+                <div className="text-center py-4 bg-slate-950/40 border border-slate-850 rounded-2xl p-4">
+                  {match.venue && (
+                    <div className="text-[10px] text-slate-500 font-medium mb-3 uppercase tracking-wider">
+                      🏟️ {match.venue}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="w-5/12 font-black text-slate-100 text-sm md:text-base">{match.teamA}</div>
+                    <div className="w-2/12 flex items-center justify-center">
+                      {match.status === "COMPLETED" || match.status === "LIVE" ? (
+                        <div className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-black text-lg text-emerald-450 min-w-[70px]">
+                          {match.teamAScore ?? 0} : {match.teamBScore ?? 0}
+                        </div>
+                      ) : (
+                        <span className="text-xs font-bold px-2 py-1 bg-slate-950 border border-slate-850 rounded-lg text-emerald-500">VS</span>
+                      )}
+                    </div>
+                    <div className="w-5/12 font-black text-slate-100 text-sm md:text-base">{match.teamB}</div>
+                  </div>
+                  {match.status === "LIVE" && match.lastSyncedAt && (
+                    <div className="text-[9px] text-emerald-400 font-bold mt-3.5 bg-emerald-500/5 border border-emerald-500/10 py-1 px-3 rounded-full w-max mx-auto">
+                      ⚡ {getSyncTimeText(match.lastSyncedAt, clientNow)}
+                    </div>
+                  )}
+                </div>
+
+                {/* Legal Streaming Section */}
+                <div className="space-y-3">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Live Match Coverage</span>
+                  {hasLegalStream ? (
+                    <div className="space-y-2.5">
+                      {match.broadcasterName && (
+                        <div className="text-xs text-slate-350 bg-slate-950/40 border border-slate-850 p-3 rounded-xl">
+                          <span className="font-bold text-slate-450">Official Broadcaster:</span> {match.broadcasterName}
+                        </div>
+                      )}
+                      
+                      <div className="flex flex-col gap-2">
+                        {match.officialMatchUrl && (
+                          <a
+                            href={match.officialMatchUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                          >
+                            <span>Official FIFA Match Center</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        )}
+                        {match.officialBroadcasterUrl && (
+                          <a
+                            href={match.officialBroadcasterUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                          >
+                            <span>Watch Stream on {match.broadcasterName || "Official Broadcaster"}</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        )}
+                        {match.liveCoverageUrl && (
+                          <a
+                            href={match.liveCoverageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-3 bg-slate-950 border border-slate-850 rounded-xl hover:border-emerald-500/30 transition-all font-bold text-xs text-slate-200 hover:text-white group"
+                          >
+                            <span>Official Live Audio / Text Coverage</span>
+                            <ExternalLink className="h-3.5 w-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl text-center text-xs text-slate-500 italic">
+                      Live coverage link not available yet.
+                    </div>
+                  )}
+                </div>
+
+                {/* User Prediction */}
+                <div className="space-y-2">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Your Prediction Choice</span>
+                  <div className="p-3 bg-slate-950/20 border border-slate-850 rounded-xl flex items-center justify-between text-xs">
+                    <span className="text-slate-450 font-medium">Predicted:</span>
+                    {match.userPrediction ? (
+                      <span className="font-bold text-emerald-400">
+                        {match.userPrediction.predictedResult === "TEAM_A" && `${match.teamA}`}
+                        {match.userPrediction.predictedResult === "TEAM_B" && `${match.teamB}`}
+                        {match.userPrediction.predictedResult === "DRAW" && "Draw"}
+                        {match.userPrediction.predictedTeamAScore !== null && 
+                          ` (${match.userPrediction.predictedTeamAScore}-${match.userPrediction.predictedTeamBScore})`}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 italic">No Prediction Submitted</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Others' Predictions List (if locked) */}
+                {isMatchLocked && (
+                  <div className="space-y-3">
+                    <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Others' Choices</span>
+                    <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {match.predictions.filter(p => p.userId !== currentUserId).length === 0 ? (
+                        <div className="text-center text-xs text-slate-500 py-2">
+                          No other users predicted this match yet.
+                        </div>
+                      ) : (
+                        match.predictions
+                          .filter((p) => p.userId !== currentUserId)
+                          .map((p) => {
+                            const isCorrect = (match.status === "COMPLETED" || match.status === "CANCELLED") && p.predictedResult === match.result;
+                            return (
+                              <div 
+                                key={p.id} 
+                                className="flex items-center justify-between p-2 bg-slate-950/40 border border-slate-850 rounded-xl text-xs"
+                              >
+                                <div className="flex items-center space-x-2 truncate">
+                                  <UserIcon className="h-3 w-3 text-slate-500" />
+                                  <span className="font-semibold text-slate-350 truncate max-w-[150px]">
+                                    {p.user.name}
+                                  </span>
+                                </div>
+                                <span className={`font-bold ${
+                                  (match.status !== "COMPLETED" && match.status !== "CANCELLED")
+                                    ? "text-slate-400" 
+                                    : isCorrect 
+                                    ? "text-emerald-400" 
+                                    : "text-slate-500"
+                                }`}>
+                                  {p.predictedResult === "TEAM_A" && `${match.teamA} Win`}
+                                  {p.predictedResult === "TEAM_B" && `${match.teamB} Win`}
+                                  {p.predictedResult === "DRAW" && "Draw"}
+                                  {p.predictedTeamAScore !== null && ` (${p.predictedTeamAScore}-${p.predictedTeamBScore})`}
+                                </span>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

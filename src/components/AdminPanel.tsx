@@ -54,6 +54,11 @@ interface MatchData {
   teamBScore: number | null;
   result: "TEAM_A" | "DRAW" | "TEAM_B" | null;
   predictions: PredictionData[];
+  officialMatchUrl?: string | null;
+  officialBroadcasterUrl?: string | null;
+  liveCoverageUrl?: string | null;
+  broadcasterName?: string | null;
+  streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE";
 }
 
 interface AdminPanelProps {
@@ -85,6 +90,11 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [editMatchTime, setEditMatchTime] = useState("");
   const [editDeadline, setEditDeadline] = useState("");
   const [editStatus, setEditStatus] = useState<"UPCOMING" | "LIVE" | "COMPLETED" | "POSTPONED" | "CANCELLED">("UPCOMING");
+  const [editOfficialMatchUrl, setEditOfficialMatchUrl] = useState("");
+  const [editOfficialBroadcasterUrl, setEditOfficialBroadcasterUrl] = useState("");
+  const [editLiveCoverageUrl, setEditLiveCoverageUrl] = useState("");
+  const [editBroadcasterName, setEditBroadcasterName] = useState("");
+  const [editStreamSourceType, setEditStreamSourceType] = useState<"OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE">("NONE");
 
   const [resultScoreA, setResultScoreA] = useState("");
   const [resultScoreB, setResultScoreB] = useState("");
@@ -105,6 +115,11 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setEditMatchTime(mTime);
     setEditDeadline(dTime);
     setEditStatus(match.status);
+    setEditOfficialMatchUrl(match.officialMatchUrl || "");
+    setEditOfficialBroadcasterUrl(match.officialBroadcasterUrl || "");
+    setEditLiveCoverageUrl(match.liveCoverageUrl || "");
+    setEditBroadcasterName(match.broadcasterName || "");
+    setEditStreamSourceType(match.streamSourceType || "NONE");
   };
 
   const handleResultClick = (match: MatchData) => {
@@ -139,12 +154,34 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
       return;
     }
 
+    const isValidClientUrl = (url: string) => {
+      if (!url) return true;
+      const trimmed = url.trim();
+      if (trimmed === "") return true;
+      try {
+        const u = new URL(trimmed);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch (_) {
+        return false;
+      }
+    };
+
+    if (!isValidClientUrl(editOfficialMatchUrl) || !isValidClientUrl(editOfficialBroadcasterUrl) || !isValidClientUrl(editLiveCoverageUrl)) {
+      setActionError("Invalid live coverage URL. Only http:// and https:// links are allowed.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("teamA", editTeamA);
     formData.append("teamB", editTeamB);
     formData.append("matchTime", editMatchTime);
     formData.append("predictionDeadline", editStatus === "POSTPONED" ? editMatchTime : editDeadline);
     formData.append("status", editStatus);
+    formData.append("officialMatchUrl", editOfficialMatchUrl);
+    formData.append("officialBroadcasterUrl", editOfficialBroadcasterUrl);
+    formData.append("liveCoverageUrl", editLiveCoverageUrl);
+    formData.append("broadcasterName", editBroadcasterName);
+    formData.append("streamSourceType", editStreamSourceType);
 
     startTransition(async () => {
       const res = await updateMatch(matchId, formData);
@@ -378,6 +415,67 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   </div>
                 </div>
 
+                <div className="border-t border-slate-850 pt-4 mt-4 space-y-4">
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Broadcast & Coverage Links</h4>
+                  <div className="text-[10px] text-slate-400 bg-slate-950 border border-slate-850 p-2.5 rounded-xl">
+                    <span className="font-bold text-amber-500">Notice:</span> Use only official broadcaster, FIFA, or legally authorized live coverage links. Do NOT include unauthorized stream urls or pirated site links.
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Stream Source Type</label>
+                      <select
+                        name="streamSourceType"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                      >
+                        <option value="NONE">None</option>
+                        <option value="OFFICIAL">Official Site</option>
+                        <option value="BROADCASTER">Broadcaster</option>
+                        <option value="FIFA">FIFA+</option>
+                        <option value="ADMIN_LINK">Custom Official Link</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Broadcaster Name</label>
+                      <input
+                        name="broadcasterName"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="e.g. Fox Sports, BBC"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Official Match URL</label>
+                      <input
+                        type="url"
+                        name="officialMatchUrl"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="https://www.fifa.com/... (must be http/https)"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Official Broadcaster URL</label>
+                      <input
+                        type="url"
+                        name="officialBroadcasterUrl"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="https://... (must be http/https)"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5">Live Coverage URL</label>
+                      <input
+                        type="url"
+                        name="liveCoverageUrl"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        placeholder="https://... (must be http/https)"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex justify-end space-x-3 pt-2">
                   <button
                     type="button"
@@ -549,6 +647,72 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                               <option value="POSTPONED">Postponed</option>
                               <option value="CANCELLED">Cancelled</option>
                             </select>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-850 pt-4 mt-4 space-y-4">
+                          <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Broadcast & Coverage Links</h5>
+                          <div className="text-[10px] text-slate-400 bg-slate-950 border border-slate-850 p-2.5 rounded-xl">
+                            <span className="font-bold text-amber-500">Notice:</span> Use only official broadcaster, FIFA, or legally authorized live coverage links. Do NOT include unauthorized stream urls or pirated site links.
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Stream Source Type</label>
+                              <select
+                                value={editStreamSourceType}
+                                onChange={(e) => setEditStreamSourceType(e.target.value as any)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 font-medium"
+                              >
+                                <option value="NONE">None</option>
+                                <option value="OFFICIAL">Official Site</option>
+                                <option value="BROADCASTER">Broadcaster</option>
+                                <option value="FIFA">FIFA+</option>
+                                <option value="ADMIN_LINK">Custom Official Link</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Broadcaster Name</label>
+                              <input
+                                value={editBroadcasterName}
+                                onChange={(e) => setEditBroadcasterName(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="e.g. Fox Sports, BBC"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-4">
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Official Match URL</label>
+                              <input
+                                type="url"
+                                value={editOfficialMatchUrl}
+                                onChange={(e) => setEditOfficialMatchUrl(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="https://www.fifa.com/... (must be http/https)"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Official Broadcaster URL</label>
+                              <input
+                                type="url"
+                                value={editOfficialBroadcasterUrl}
+                                onChange={(e) => setEditOfficialBroadcasterUrl(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="https://... (must be http/https)"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-450 mb-1">Live Coverage URL</label>
+                              <input
+                                type="url"
+                                value={editLiveCoverageUrl}
+                                onChange={(e) => setEditLiveCoverageUrl(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                                placeholder="https://... (must be http/https)"
+                              />
+                            </div>
                           </div>
                         </div>
 
