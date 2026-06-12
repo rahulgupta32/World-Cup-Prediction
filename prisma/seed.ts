@@ -45,6 +45,50 @@ function getResultFromScore(scoreA: number, scoreB: number): Outcome {
   return Outcome.DRAW;
 }
 
+function normalizeTeamName(name: string): string {
+  if (!name) return "";
+  let clean = name.trim().toLowerCase();
+  clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  clean = clean.replace(/\s+/g, " ");
+
+  const mapping: Record<string, string> = {
+    "south korea": "korea republic",
+    "republic of korea": "korea republic",
+    "czech republic": "czechia",
+    "united states": "usa",
+    "united states of america": "usa",
+    "turkey": "türkiye",
+    "turkiye": "türkiye",
+    "türkiye": "türkiye",
+    "democratic republic of the congo": "dr congo",
+    "congo dr": "dr congo",
+  };
+
+  if (mapping[clean]) {
+    return mapping[clean];
+  }
+  return clean;
+}
+
+function getCanonicalTeamName(name: string): string {
+  if (!name) return "";
+  const clean = name.trim();
+  const normalized = normalizeTeamName(clean);
+
+  const canonicalMap: Record<string, string> = {
+    "usa": "USA",
+    "korea republic": "Korea Republic",
+    "czechia": "Czechia",
+    "türkiye": "Türkiye",
+    "dr congo": "DR Congo"
+  };
+
+  if (canonicalMap[normalized]) {
+    return canonicalMap[normalized];
+  }
+  return clean;
+}
+
 const STADIUM_NAMES: Record<string, string> = {
   "1": "Estadio Azteca, Mexico City",
   "2": "Estadio Akron, Guadalajara",
@@ -122,15 +166,20 @@ async function main() {
       name: "Admin User",
       passwordHash: adminHash,
       role: "ADMIN",
+      emailVerifiedAt: new Date(),
     },
     create: {
       name: "Admin User",
       email: adminEmail,
       passwordHash: adminHash,
       role: "ADMIN",
+      emailVerifiedAt: new Date(),
     },
   });
   console.log(`Admin user seeded: ${admin.email}`);
+
+  // Fetch all existing matches in the DB to perform local duplicate matching
+  const dbMatches = await prisma.match.findMany();
 
   // 2. Seed Official Matches (preferring API for all 104 matches, fallback to 24 hardcoded if API fails)
   let seededMatches: any[] = [];
@@ -166,38 +215,63 @@ async function main() {
       const scoreB = (scoreBStr !== undefined && scoreBStr !== null && scoreBStr !== "null" && scoreBStr !== "") ? parseInt(scoreBStr) : null;
       const outcome = (scoreA !== null && scoreB !== null) ? getResultFromScore(scoreA, scoreB) : null;
 
-      const createdMatch = await prisma.match.upsert({
-        where: {
-          apiProvider_apiMatchId: {
-            apiProvider: "worldcup26.ir",
-            apiMatchId: String(game.id),
-          },
-        },
-        update: {
-          status,
-          teamAScore: scoreA,
-          teamBScore: scoreB,
-          result: outcome,
-          group: game.group ? `Group ${game.group}` : "Group Stage",
-          venue: STADIUM_NAMES[String(game.stadium_id)] || `Stadium #${game.stadium_id}`,
-        },
-        create: {
-          teamA: game.home_team_name_en || "TBD",
-          teamB: game.away_team_name_en || "TBD",
-          matchTime,
-          predictionDeadline: matchTime,
-          status,
-          teamAScore: scoreA,
-          teamBScore: scoreB,
-          result: outcome,
-          group: game.group ? `Group ${game.group}` : "Group Stage",
-          venue: STADIUM_NAMES[String(game.stadium_id)] || `Stadium #${game.stadium_id}`,
-          source: "worldcup26.ir",
-          sourceUpdatedAt: new Date(),
-          apiProvider: "worldcup26.ir",
-          apiMatchId: String(game.id),
-        },
-      });
+      const rawA = game.home_team_name_en || "TBD";
+      const rawB = game.away_team_name_en || "TBD";
+      const canonicalA = getCanonicalTeamName(rawA);
+      const canonicalB = getCanonicalTeamName(rawB);
+      const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+      const matchDateKey = matchTime.toISOString().split("T")[0];
+
+      // Find if exists
+      let existingMatch = dbMatches.find(
+        m => m.apiProvider === "worldcup26.ir" && m.apiMatchId === String(game.id)
+      );
+
+      if (!existingMatch) {
+        existingMatch = dbMatches.find(m => {
+          if (m.normalizedTeamA && m.normalizedTeamB && m.matchDateKey) {
+            return m.normalizedTeamA === teams[0] && m.normalizedTeamB === teams[1] && m.matchDateKey === matchDateKey;
+          }
+          const dbA = normalizeTeamName(m.teamA);
+          const dbB = normalizeTeamName(m.teamB);
+          const nameOk = (teams[0] === dbA && teams[1] === dbB) || (teams[0] === dbB && teams[1] === dbA);
+          if (!nameOk) return false;
+          const diff = Math.abs(new Date(m.matchTime).getTime() - matchTime.getTime());
+          return diff < 24 * 60 * 60 * 1000;
+        });
+      }
+
+      const matchData = {
+        teamA: canonicalA,
+        teamB: canonicalB,
+        matchTime,
+        predictionDeadline: matchTime,
+        status,
+        teamAScore: scoreA,
+        teamBScore: scoreB,
+        result: outcome,
+        group: game.group ? `Group ${game.group}` : "Group Stage",
+        venue: STADIUM_NAMES[String(game.stadium_id)] || `Stadium #${game.stadium_id}`,
+        source: "worldcup26.ir",
+        sourceUpdatedAt: new Date(),
+        apiProvider: "worldcup26.ir",
+        apiMatchId: String(game.id),
+        normalizedTeamA: teams[0],
+        normalizedTeamB: teams[1],
+        matchDateKey,
+      };
+
+      let createdMatch;
+      if (existingMatch) {
+        createdMatch = await prisma.match.update({
+          where: { id: existingMatch.id },
+          data: matchData,
+        });
+      } else {
+        createdMatch = await prisma.match.create({
+          data: matchData,
+        });
+      }
       seededMatches.push(createdMatch);
     }
     console.log(`Successfully seeded ${seededMatches.length} official matches from the API.`);
@@ -205,33 +279,46 @@ async function main() {
     console.warn(`Failed to seed matches from API: ${error.message}. Falling back to 24 hardcoded matches...`);
     seededMatches = [];
     for (const m of officialFallbackMatches) {
-      const createdMatch = await prisma.match.upsert({
-        where: {
-          apiProvider_apiMatchId: {
-            apiProvider: "fallback",
-            apiMatchId: `${m.teamA}-${m.teamB}`,
-          },
-        },
-        update: {
-          matchTime: m.matchTime,
-          predictionDeadline: m.matchTime,
-          group: m.group,
-          venue: m.venue,
-        },
-        create: {
-          teamA: m.teamA,
-          teamB: m.teamB,
-          matchTime: m.matchTime,
-          predictionDeadline: m.matchTime,
-          status: MatchStatus.UPCOMING,
-          group: m.group,
-          venue: m.venue,
-          source: "Official FIFA Schedule (Fallback)",
-          sourceUpdatedAt: new Date(),
-          apiProvider: "fallback",
-          apiMatchId: `${m.teamA}-${m.teamB}`,
-        },
+      const canonicalA = getCanonicalTeamName(m.teamA);
+      const canonicalB = getCanonicalTeamName(m.teamB);
+      const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+      const matchDateKey = m.matchTime.toISOString().split("T")[0];
+
+      const matchData = {
+        teamA: canonicalA,
+        teamB: canonicalB,
+        matchTime: m.matchTime,
+        predictionDeadline: m.matchTime,
+        status: MatchStatus.UPCOMING,
+        group: m.group,
+        venue: m.venue,
+        source: "Official FIFA Schedule (Fallback)",
+        sourceUpdatedAt: new Date(),
+        apiProvider: "fallback",
+        apiMatchId: `${m.teamA}-${m.teamB}`,
+        normalizedTeamA: teams[0],
+        normalizedTeamB: teams[1],
+        matchDateKey,
+      };
+
+      const existingMatch = dbMatches.find(x => {
+        if (x.normalizedTeamA && x.normalizedTeamB && x.matchDateKey) {
+          return x.normalizedTeamA === teams[0] && x.normalizedTeamB === teams[1] && x.matchDateKey === matchDateKey;
+        }
+        return false;
       });
+
+      let createdMatch;
+      if (existingMatch) {
+        createdMatch = await prisma.match.update({
+          where: { id: existingMatch.id },
+          data: matchData,
+        });
+      } else {
+        createdMatch = await prisma.match.create({
+          data: matchData,
+        });
+      }
       seededMatches.push(createdMatch);
     }
     console.log(`Successfully seeded ${seededMatches.length} fallback official matches.`);

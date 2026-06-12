@@ -5,6 +5,8 @@ import { login } from "@/app/actions/auth";
 import Link from "next/link";
 import { Trophy, Mail, Lock, Loader2, ArrowRight } from "lucide-react";
 
+import ResendButton from "@/components/ResendButton";
+
 export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(login, null);
 
@@ -33,8 +35,13 @@ export default function LoginPage() {
         <div className="bg-slate-900/80 backdrop-blur-md py-8 px-4 border border-slate-800/80 shadow-2xl rounded-2xl sm:px-10">
           <form action={formAction} className="space-y-6">
             {state?.error && (
-              <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400">
-                {state.error}
+              <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400 space-y-3">
+                <p>{state.error}</p>
+                {state.needsVerification && state.email && (
+                  <div className="pt-2 border-t border-red-500/20">
+                    <ResendButton email={state.email} />
+                  </div>
+                )}
               </div>
             )}
 

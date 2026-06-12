@@ -60,10 +60,15 @@ export async function createMatch(prevState: any, formData: FormData) {
   }
 
   try {
+    const canonicalA = getCanonicalTeamName(teamA);
+    const canonicalB = getCanonicalTeamName(teamB);
+    const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+    const matchDateKey = matchTime.toISOString().split("T")[0];
+
     await prisma.match.create({
       data: {
-        teamA,
-        teamB,
+        teamA: canonicalA,
+        teamB: canonicalB,
         matchTime,
         predictionDeadline,
         status: MatchStatus.UPCOMING,
@@ -78,6 +83,9 @@ export async function createMatch(prevState: any, formData: FormData) {
         broadcasterRegion,
         coverageNote,
         streamSourceType,
+        normalizedTeamA: teams[0],
+        normalizedTeamB: teams[1],
+        matchDateKey,
       },
     });
 
@@ -139,11 +147,16 @@ export async function updateMatch(matchId: string, formData: FormData) {
   }
 
   try {
+    const canonicalA = getCanonicalTeamName(teamA);
+    const canonicalB = getCanonicalTeamName(teamB);
+    const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+    const matchDateKey = matchTime.toISOString().split("T")[0];
+
     await prisma.match.update({
       where: { id: matchId },
       data: {
-        teamA,
-        teamB,
+        teamA: canonicalA,
+        teamB: canonicalB,
         matchTime,
         predictionDeadline,
         status,
@@ -159,6 +172,9 @@ export async function updateMatch(matchId: string, formData: FormData) {
         broadcasterRegion,
         coverageNote,
         streamSourceType,
+        normalizedTeamA: teams[0],
+        normalizedTeamB: teams[1],
+        matchDateKey,
       },
     });
 
@@ -366,17 +382,38 @@ function normalizeTeamName(name: string): string {
 
   const mapping: Record<string, string> = {
     "south korea": "korea republic",
+    "republic of korea": "korea republic",
     "czech republic": "czechia",
     "united states": "usa",
     "united states of america": "usa",
-    "turkey": "turkiye",
-    "turkiye": "turkiye",
+    "turkey": "türkiye",
+    "turkiye": "türkiye",
+    "türkiye": "türkiye",
     "democratic republic of the congo": "dr congo",
     "congo dr": "dr congo",
   };
 
   if (mapping[clean]) {
     return mapping[clean];
+  }
+  return clean;
+}
+
+function getCanonicalTeamName(name: string): string {
+  if (!name) return "";
+  const clean = name.trim();
+  const normalized = normalizeTeamName(clean);
+
+  const canonicalMap: Record<string, string> = {
+    "usa": "USA",
+    "korea republic": "Korea Republic",
+    "czechia": "Czechia",
+    "türkiye": "Türkiye",
+    "dr congo": "DR Congo"
+  };
+
+  if (canonicalMap[normalized]) {
+    return canonicalMap[normalized];
   }
   return clean;
 }
@@ -408,8 +445,8 @@ function toNormalizedApiMatch(game: any): NormalizedApiMatch {
   return {
     apiProvider: "worldcup26.ir",
     apiMatchId: game.id ? String(game.id) : null,
-    teamA: game.home_team_name_en || "",
-    teamB: game.away_team_name_en || "",
+    teamA: getCanonicalTeamName(game.home_team_name_en || ""),
+    teamB: getCanonicalTeamName(game.away_team_name_en || ""),
     kickoffUtc: parseLocalDate(game.local_date, String(game.stadium_id)),
     status,
     scoreA: scoreA !== null && !isNaN(scoreA) ? scoreA : null,
@@ -429,9 +466,22 @@ function findDbMatch(normalized: NormalizedApiMatch, dbMatches: any[]): any {
     if (match) return match;
   }
 
+  const apiA = normalizeTeamName(normalized.teamA);
+  const apiB = normalizeTeamName(normalized.teamB);
+  const teams = [apiA, apiB].sort();
+  const dateKey = normalized.kickoffUtc ? normalized.kickoffUtc.toISOString().split("T")[0] : null;
+
+  if (dateKey) {
+    const match = dbMatches.find(m => {
+      if (m.normalizedTeamA && m.normalizedTeamB && m.matchDateKey) {
+        return m.normalizedTeamA === teams[0] && m.normalizedTeamB === teams[1] && m.matchDateKey === dateKey;
+      }
+      return false;
+    });
+    if (match) return match;
+  }
+
   const nameMatched = dbMatches.filter(m => {
-    const apiA = normalizeTeamName(normalized.teamA);
-    const apiB = normalizeTeamName(normalized.teamB);
     const dbA = normalizeTeamName(m.teamA);
     const dbB = normalizeTeamName(m.teamB);
     return (apiA === dbA && apiB === dbB) || (apiA === dbB && apiB === dbA);
@@ -545,6 +595,20 @@ export async function syncMatchesWithApi() {
           apiUrls.liveCoverageUrl = normalized.liveCoverageUrl;
         }
 
+        // Compute normalized and canonical values for duplicate matching and display consistency
+        const canonicalA = getCanonicalTeamName(match.teamA);
+        const canonicalB = getCanonicalTeamName(match.teamB);
+        const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+        const dateKey = (normalized.kickoffUtc || new Date(match.matchTime)).toISOString().split("T")[0];
+
+        const normFields = {
+          teamA: canonicalA,
+          teamB: canonicalB,
+          normalizedTeamA: teams[0],
+          normalizedTeamB: teams[1],
+          matchDateKey: dateKey,
+        };
+
         // Check if API says cancelled or postponed
         if (normalized.isCancelled) {
           summary.errors.push(`Match warning: ${match.teamA} vs ${match.teamB} is marked as CANCELLED/VOID in API. Status updated to CANCELLED.`);
@@ -558,6 +622,7 @@ export async function syncMatchesWithApi() {
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
               ...apiUrls,
+              ...normFields,
             },
           });
           continue;
@@ -575,6 +640,7 @@ export async function syncMatchesWithApi() {
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
               ...apiUrls,
+              ...normFields,
             },
           });
           continue;
@@ -603,6 +669,7 @@ export async function syncMatchesWithApi() {
                 apiMatchId: normalized.apiMatchId,
                 lastSyncedAt: new Date(),
                 ...apiUrls,
+                ...normFields,
               },
             });
           });
@@ -627,6 +694,7 @@ export async function syncMatchesWithApi() {
               apiMatchId: normalized.apiMatchId,
               lastSyncedAt: new Date(),
               ...apiUrls,
+              ...normFields,
             },
           });
           summary.updatedLive++;
@@ -651,6 +719,7 @@ export async function syncMatchesWithApi() {
             apiMatchId: normalized.apiMatchId,
             lastSyncedAt: new Date(),
             ...apiUrls,
+            ...normFields,
           };
 
           if (match.status === MatchStatus.UPCOMING && normalized.kickoffUtc) {

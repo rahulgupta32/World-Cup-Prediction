@@ -41,14 +41,18 @@ enum PredictionResult {
 }
 
 model User {
-  id           String       @id @default(uuid())
-  name         String
-  email        String       @unique
-  passwordHash String
-  role         Role         @default(USER)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  predictions  Prediction[]
+  id                          String       @id @default(uuid())
+  name                        String
+  email                       String       @unique
+  passwordHash                String
+  role                        Role         @default(USER)
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
+  predictions                 Prediction[]
+  emailVerifiedAt             DateTime?
+  verificationToken           String?
+  verificationTokenExpiresAt  DateTime?
+  verificationEmailLastSentAt DateTime?
 }
 
 model Match {
@@ -82,9 +86,14 @@ model Match {
   coverageNote           String?
   streamSourceType       StreamSourceType  @default(NONE)
 
+  normalizedTeamA        String?
+  normalizedTeamB        String?
+  matchDateKey           String?
+
   @@index([status])
   @@index([matchTime])
   @@unique([apiProvider, apiMatchId])
+  @@index([normalizedTeamA, normalizedTeamB, matchDateKey])
 }
 
 model Prediction {

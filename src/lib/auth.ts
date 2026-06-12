@@ -46,7 +46,20 @@ export async function getSessionUser(): Promise<JWTPayload | null> {
     const cookieStore = await nextCookies();
     const token = cookieStore.get("session")?.value;
     if (!token) return null;
-    return await verifyToken(token);
+    const payload = await verifyToken(token);
+    if (!payload) return null;
+
+    // Strict check: make sure user exists and is email verified in DB
+    const dbUser = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { emailVerifiedAt: true },
+    });
+
+    if (!dbUser || !dbUser.emailVerifiedAt) {
+      return null;
+    }
+
+    return payload;
   } catch (error) {
     return null;
   }
