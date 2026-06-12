@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import nodemailer from "nodemailer";
 
 export function generateVerificationToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -8,22 +9,8 @@ export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-export async function sendVerificationEmail(email: string, token: string): Promise<boolean> {
-  const appUrl = (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
-  const verificationLink = `${appUrl}/verify-email?token=${token}`;
-
-  console.log(`[EMAIL VERIFICATION] Verification link for ${email}: ${verificationLink}`);
-
-  const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.EMAIL_FROM || "onboarding@resend.dev";
-
-  if (!apiKey) {
-    console.log("[EMAIL VERIFICATION] No RESEND_API_KEY found, skipped sending email. Link was logged above.");
-    return true;
-  }
-
-  const subject = "Verify your email for World Cup Predictor League";
-  const htmlContent = `
+function getEmailHtml(verificationLink: string): string {
+  return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1a202c;">
       <div style="text-align: center; margin-bottom: 24px;">
         <h1 style="color: #0f172a; font-size: 24px; font-weight: 700; margin: 0;">⚽ World Cup Predictor League</h1>
@@ -52,33 +39,118 @@ export async function sendVerificationEmail(email: string, token: string): Promi
       </div>
     </div>
   `;
+}
 
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: email,
-        subject: subject,
-        html: htmlContent,
-      }),
-    });
+export async function sendVerificationEmail(email: string, token: string): Promise<boolean> {
+  const isProduction = process.env.NODE_ENV === "production";
+  const provider = (process.env.EMAIL_PROVIDER || "resend").toLowerCase();
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`Resend API error: Status ${res.status}. Body: ${errorText}`);
-      return false;
+  // Safe logs
+  console.log(`[EMAIL] Provider active: ${provider}`);
+  console.log(`[EMAIL] SMTP Configured - Host: ${process.env.SMTP_HOST ? "yes" : "no"}, User: ${process.env.SMTP_USER ? "yes" : "no"}`);
+  
+  const maskedToken = token.substring(0, 8) + "...";
+  console.log(`[EMAIL] Sending verification email to ${email} (token: ${maskedToken})`);
+
+  const appUrl = (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const verificationLink = `${appUrl}/verify-email?token=${token}`;
+  const subject = "Verify your email for World Cup Predictor League";
+  const htmlContent = getEmailHtml(verificationLink);
+
+  if (provider === "smtp") {
+    const host = process.env.SMTP_HOST;
+    const portStr = process.env.SMTP_PORT;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASSWORD;
+    const from = process.env.EMAIL_FROM;
+
+    if (!host || !portStr || !user || !pass || !from) {
+      if (isProduction) {
+        throw new Error(
+          `SMTP Configuration is missing in production. Host: ${host ? "configured" : "missing"}, Port: ${portStr ? "configured" : "missing"}, User: ${user ? "configured" : "missing"}, Pass: ${pass ? "configured" : "missing"}, From: ${from ? "configured" : "missing"}`
+        );
+      } else {
+        console.log(`[DEV FALLBACK] Verification Link for ${email}: ${verificationLink}`);
+        return true;
+      }
     }
 
-    const data = await res.json();
-    console.log(`Email successfully sent via Resend: ${data.id}`);
-    return true;
-  } catch (error) {
-    console.error("Failed to send verification email through Resend API:", error);
-    return false;
+    const port = parseInt(portStr, 10);
+    const secure = process.env.SMTP_SECURE === "true";
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+          user,
+          pass,
+        },
+      });
+
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject,
+        html: htmlContent,
+      });
+
+      console.log(`[EMAIL] Email successfully sent to ${email} via SMTP`);
+      return true;
+    } catch (error) {
+      console.error("[EMAIL] Failed to send email via SMTP:", error);
+      return false;
+    }
+  } else if (provider === "resend") {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.EMAIL_FROM;
+
+    if (!apiKey || !from) {
+      if (isProduction) {
+        throw new Error(
+          `Resend Configuration is missing in production. API Key: ${apiKey ? "configured" : "missing"}, From: ${from ? "configured" : "missing"}`
+        );
+      } else {
+        console.log(`[DEV FALLBACK] Verification Link for ${email}: ${verificationLink}`);
+        return true;
+      }
+    }
+
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: email,
+          subject,
+          html: htmlContent,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`[EMAIL] Resend API error: Status ${res.status}. Body: ${errorText}`);
+        return false;
+      }
+
+      const data = await res.json();
+      console.log(`[EMAIL] Email successfully sent to ${email} via Resend (ID: ${data.id})`);
+      return true;
+    } catch (error) {
+      console.error("[EMAIL] Failed to send email via Resend:", error);
+      return false;
+    }
+  } else {
+    if (isProduction) {
+      throw new Error(`Invalid EMAIL_PROVIDER: "${provider}". Must be "smtp" or "resend" in production.`);
+    } else {
+      console.log(`[DEV FALLBACK] Verification Link for ${email} (invalid provider "${provider}"): ${verificationLink}`);
+      return true;
+    }
   }
 }
