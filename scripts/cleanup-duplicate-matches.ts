@@ -51,22 +51,50 @@ async function main() {
   console.log(`Fetched ${allMatches.length} total matches from DB.`);
 
   // 2. Identify duplicate groups
-  // We will group matches by normalized team names (sorted alphabetically) and match date (YYYY-MM-DD)
-  const groups: Record<string, typeof allMatches> = {};
+  // We will group matches by normalized team names (sorted alphabetically) and check proximity within 36 hours
+  const teamGroups: Record<string, typeof allMatches> = {};
 
   for (const match of allMatches) {
     const normA = normalizeTeamName(match.teamA);
     const normB = normalizeTeamName(match.teamB);
-    const sortedTeams = [normA, normB].sort().join(" vs ");
-    
-    // Group by team pair and kickoff date proximity (within same day)
-    const dateKey = new Date(match.matchTime).toISOString().split("T")[0];
-    const groupKey = `${sortedTeams} @ ${dateKey}`;
+    if (normA === "tbd" || normB === "tbd") continue;
 
-    if (!groups[groupKey]) {
-      groups[groupKey] = [];
+    const sortedTeams = [normA, normB].sort().join(" vs ");
+
+    if (!teamGroups[sortedTeams]) {
+      teamGroups[sortedTeams] = [];
     }
-    groups[groupKey].push(match);
+    teamGroups[sortedTeams].push(match);
+  }
+
+  const groups: Record<string, typeof allMatches> = {};
+
+  for (const [teams, list] of Object.entries(teamGroups)) {
+    if (list.length <= 1) continue;
+
+    // Sort matches by time
+    list.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
+
+    // Group adjacent matches that are within 36 hours
+    let currentGroup: typeof allMatches = [list[0]];
+    for (let i = 1; i < list.length; i++) {
+      const prev = list[i - 1];
+      const curr = list[i];
+      const diffMs = Math.abs(new Date(curr.matchTime).getTime() - new Date(prev.matchTime).getTime());
+      if (diffMs < 36 * 60 * 60 * 1000) {
+        currentGroup.push(curr);
+      } else {
+        if (currentGroup.length > 1) {
+          const dateStr = new Date(currentGroup[0].matchTime).toISOString().split("T")[0];
+          groups[`${teams} @ ${dateStr}`] = currentGroup;
+        }
+        currentGroup = [curr];
+      }
+    }
+    if (currentGroup.length > 1) {
+      const dateStr = new Date(currentGroup[0].matchTime).toISOString().split("T")[0];
+      groups[`${teams} @ ${dateStr}`] = currentGroup;
+    }
   }
 
   let totalDuplicateGroups = 0;
@@ -123,32 +151,53 @@ async function main() {
     for (const dup of duplicates) {
       console.log(`  [REMOVE DUPLICATE]: ID: ${dup.id} | ${dup.teamA} vs ${dup.teamB} (${dup.status}) | API ID: ${dup.apiMatchId} | Predictions: ${dup.predictions.length}`);
 
-      // Safe predictions merging
+      const predictionsToMove = [];
+      const conflictingPredictions = [];
+
       for (const pred of dup.predictions) {
-        // Check if user already predicted the canonical match
         const hasPredOnCanonical = canonical.predictions.some(p => p.userId === pred.userId);
-        
         if (hasPredOnCanonical) {
-          // Conflict: user predicted both!
-          console.log(`    - Prediction conflict for user ${pred.userId}. Duplicate prediction will be DELETED.`);
-          totalPredictionsDeleted++;
-          if (confirmCleanup) {
-            await prisma.prediction.delete({
-              where: { id: pred.id },
-            });
-          }
+          conflictingPredictions.push(pred);
         } else {
-          // No conflict: safe to move prediction to canonical
-          console.log(`    - Moving prediction for user ${pred.userId} to canonical match.`);
-          totalPredictionsMoved++;
-          if (confirmCleanup) {
-            await prisma.prediction.update({
-              where: { id: pred.id },
-              data: {
-                matchId: canonical.id,
-              },
-            });
+          predictionsToMove.push(pred);
+        }
+      }
+
+      if (conflictingPredictions.length > 0) {
+        console.log(`    ⚠️ Found ${conflictingPredictions.length} prediction conflicts:`);
+        for (const pred of conflictingPredictions) {
+          const user = await prisma.user.findUnique({ where: { id: pred.userId } });
+          console.log(`      - User: ${user?.name || "Unknown"} (${user?.email || "Unknown"}) | Duplicate score: ${pred.predictedTeamAScore}-${pred.predictedTeamBScore} (Result: ${pred.predictedResult})`);
+        }
+
+        const confirmDeleteConflicts = process.env.CONFIRM_DELETE_CONFLICTS === "true";
+        if (!confirmDeleteConflicts) {
+          console.log(`    ❌ [SKIP DELETION] Duplicate match ${dup.id} will NOT be deleted to prevent automatic cascade deletion of conflicting predictions. Run with CONFIRM_DELETE_CONFLICTS=true to force delete.`);
+          continue;
+        } else {
+          console.log(`    ⚠️ [FORCE DELETE] Deleting conflicting predictions since CONFIRM_DELETE_CONFLICTS=true.`);
+          for (const pred of conflictingPredictions) {
+            totalPredictionsDeleted++;
+            if (confirmCleanup) {
+              await prisma.prediction.delete({
+                where: { id: pred.id },
+              });
+            }
           }
+        }
+      }
+
+      // Safe to move non-conflicting predictions
+      for (const pred of predictionsToMove) {
+        console.log(`    - Moving prediction for user ${pred.userId} to canonical match.`);
+        totalPredictionsMoved++;
+        if (confirmCleanup) {
+          await prisma.prediction.update({
+            where: { id: pred.id },
+            data: {
+              matchId: canonical.id,
+            },
+          });
         }
       }
 
