@@ -25,7 +25,7 @@ export function calculatePoints(
   }
 
   if (predictedResult === actualResult) {
-    return { points: 2, predictionResult: PredictionResult.CORRECT_OUTCOME };
+    return { points: 3, predictionResult: PredictionResult.CORRECT_OUTCOME };
   }
 
   return { points: -1, predictionResult: PredictionResult.WRONG };

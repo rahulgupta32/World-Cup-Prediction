@@ -28,16 +28,14 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     orderBy: { createdAt: "asc" },
   });
 
-  // 2. Fetch completed or cancelled matches count
-  const completedOrCancelledMatchesCount = await prisma.match.count({
+  // 2. Fetch completed matches count only
+  const completedMatchesCount = await prisma.match.count({
     where: {
-      status: {
-        in: ["COMPLETED", "CANCELLED"],
-      },
+      status: "COMPLETED",
     },
   });
 
-  // 3. Fetch all predictions that have been calculated
+  // 3. Fetch all predictions that have been calculated, including their match status
   const predictions = await prisma.prediction.findMany({
     where: {
       isCalculated: true,
@@ -46,6 +44,11 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       userId: true,
       pointsAwarded: true,
       predictionResult: true,
+      match: {
+        select: {
+          status: true,
+        },
+      },
     },
   });
 
@@ -58,6 +61,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       correctOutcomeCount: number;
       wrongPredictions: number;
       submittedCount: number;
+      submittedCompletedCount: number;
     }
   >();
 
@@ -69,6 +73,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       correctOutcomeCount: 0,
       wrongPredictions: 0,
       submittedCount: 0,
+      submittedCompletedCount: 0,
     });
   }
 
@@ -80,6 +85,10 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     stats.submittedCount += 1;
     stats.totalPoints += p.pointsAwarded;
 
+    if (p.match.status === "COMPLETED") {
+      stats.submittedCompletedCount += 1;
+    }
+
     if (p.predictionResult === "EXACT_SCORE") {
       stats.exactScoreCount += 1;
     } else if (p.predictionResult === "CORRECT_OUTCOME") {
@@ -87,7 +96,6 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     } else if (p.predictionResult === "WRONG") {
       stats.wrongPredictions += 1;
     }
-    // Note: VOID (cancelled matches) predictions do not add to wrongPredictions or exact/correct
   }
 
   // Map to entries
@@ -98,8 +106,13 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       correctOutcomeCount: 0,
       wrongPredictions: 0,
       submittedCount: 0,
+      submittedCompletedCount: 0,
     };
-    const missed = completedOrCancelledMatchesCount - stats.submittedCount;
+    
+    const missedCompleted = completedMatchesCount - stats.submittedCompletedCount;
+    // Deduct 1 point for every missed completed match
+    const adjustedPoints = stats.totalPoints - missedCompleted;
+    
     const totalCorrect = stats.exactScoreCount + stats.correctOutcomeCount;
     const accuracy = stats.submittedCount > 0 ? (totalCorrect / stats.submittedCount) * 100 : 0;
 
@@ -109,11 +122,11 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       name: u.name,
       email: u.email,
       role: u.role,
-      totalPoints: stats.totalPoints,
+      totalPoints: adjustedPoints,
       correctOutcomeCount: stats.correctOutcomeCount,
       exactScoreCount: stats.exactScoreCount,
       wrongPredictions: stats.wrongPredictions,
-      missedPredictions: missed,
+      missedPredictions: missedCompleted,
       submittedCompletedCount: stats.submittedCount,
       accuracy: parseFloat(accuracy.toFixed(1)),
       createdAt: u.createdAt, // temporary for sorting

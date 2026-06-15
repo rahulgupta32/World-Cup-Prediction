@@ -5,6 +5,7 @@ import { verifyAdminAction } from "@/lib/auth";
 import { getResultFromScore, calculateMatchPoints, recalculateAllPoints } from "@/lib/scoring";
 import { revalidatePath } from "next/cache";
 import { Outcome, MatchStatus, StreamSourceType } from "@prisma/client";
+import { runMatchSync } from "@/lib/match-sync";
 
 function isValidHttpUrl(stringStr: string | null | undefined): boolean {
   if (!stringStr) return true;
@@ -514,232 +515,9 @@ export async function syncMatchesWithApi() {
     return { success: false, error: "Unauthorized. Admin privileges required." };
   }
 
-  const summary = {
-    totalFetched: 0,
-    matched: 0,
-    updatedLive: 0,
-    completed: 0,
-    pointsCalculated: 0,
-    skippedUpcoming: 0,
-    skippedAdminFinalized: 0,
-    unmatched: 0,
-    errors: [] as string[],
-  };
-
   try {
-    // Fetch API with 10-second timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    let res;
-    try {
-      res = await fetch("https://worldcup26.ir/get/games", {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        return { success: false, error: "API request timed out (10s limit exceeded)." };
-      }
-      return { success: false, error: `Failed to connect to API: ${err.message || err}` };
-    }
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      return { success: false, error: `API returned error status: ${res.status} ${res.statusText}` };
-    }
-
-    const data = await res.json();
-    if (!data || !Array.isArray(data.games)) {
-      return { success: false, error: "Invalid API response format. Missing games list." };
-    }
-
-    const apiGames = data.games;
-    summary.totalFetched = apiGames.length;
-
-    // Fetch all matches from DB
-    const dbMatches = await prisma.match.findMany();
-
-    // Iterate and update matches
-    for (const game of apiGames) {
-      try {
-        const normalized = toNormalizedApiMatch(game);
-        
-        // Find match in DB
-        const match = findDbMatch(normalized, dbMatches);
-        if (!match) {
-          console.warn(`Unmatched API game: ${normalized.teamA} vs ${normalized.teamB} (API ID: ${normalized.apiMatchId})`);
-          summary.unmatched++;
-          continue;
-        }
-
-        summary.matched++;
-
-        // Admin Override check: If match.scoreSource = ADMIN and match.status = COMPLETED, do not overwrite the score from API
-        if (match.scoreSource === "ADMIN" && match.status === "COMPLETED") {
-          summary.skippedAdminFinalized++;
-          continue;
-        }
-
-        // Determine home/away score assignment based on team orientation
-        const isSwapped = normalizeTeamName(normalized.teamA) === normalizeTeamName(match.teamB);
-        const apiScoreA = isSwapped ? normalized.scoreB : normalized.scoreA;
-        const apiScoreB = isSwapped ? normalized.scoreA : normalized.scoreB;
-
-        const apiUrls: any = {};
-        if (normalized.officialMatchUrl) {
-          apiUrls.officialMatchUrl = normalized.officialMatchUrl;
-        }
-        if (normalized.liveCoverageUrl) {
-          apiUrls.liveCoverageUrl = normalized.liveCoverageUrl;
-        }
-
-        // Compute normalized and canonical values for duplicate matching and display consistency
-        const canonicalA = getCanonicalTeamName(match.teamA);
-        const canonicalB = getCanonicalTeamName(match.teamB);
-        const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
-        const dateKey = (normalized.kickoffUtc || new Date(match.matchTime)).toISOString().split("T")[0];
-
-        const normFields = {
-          teamA: canonicalA,
-          teamB: canonicalB,
-          normalizedTeamA: teams[0],
-          normalizedTeamB: teams[1],
-          matchDateKey: dateKey,
-        };
-
-        // Check if API says cancelled or postponed
-        if (normalized.isCancelled) {
-          summary.errors.push(`Match warning: ${match.teamA} vs ${match.teamB} is marked as CANCELLED/VOID in API. Status updated to CANCELLED.`);
-          
-          await prisma.match.update({
-            where: { id: match.id },
-            data: {
-              status: MatchStatus.CANCELLED,
-              scoreSource: "API",
-              apiProvider: "worldcup26.ir",
-              apiMatchId: normalized.apiMatchId,
-              lastSyncedAt: new Date(),
-              ...apiUrls,
-              ...normFields,
-            },
-          });
-          continue;
-        }
-
-        if (normalized.isPostponed) {
-          summary.errors.push(`Match warning: ${match.teamA} vs ${match.teamB} is marked as POSTPONED/DELAYED in API. Status updated to POSTPONED.`);
-          
-          await prisma.match.update({
-            where: { id: match.id },
-            data: {
-              status: MatchStatus.POSTPONED,
-              scoreSource: "API",
-              apiProvider: "worldcup26.ir",
-              apiMatchId: normalized.apiMatchId,
-              lastSyncedAt: new Date(),
-              ...apiUrls,
-              ...normFields,
-            },
-          });
-          continue;
-        }
-
-        if (normalized.status === "COMPLETED") {
-          // COMPLETED match: require scoreA and scoreB to be valid numbers
-          if (apiScoreA === null || apiScoreB === null) {
-            summary.errors.push(`Error: Game ${match.teamA} vs ${match.teamB} is finished but scores are invalid/missing.`);
-            continue;
-          }
-
-          const outcome = getResultFromScore(apiScoreA, apiScoreB);
-
-          // Update match status and scores inside a transaction to keep it safe
-          await prisma.$transaction(async (tx) => {
-            await tx.match.update({
-              where: { id: match.id },
-              data: {
-                status: MatchStatus.COMPLETED,
-                teamAScore: apiScoreA,
-                teamBScore: apiScoreB,
-                result: outcome,
-                scoreSource: "API",
-                apiProvider: "worldcup26.ir",
-                apiMatchId: normalized.apiMatchId,
-                lastSyncedAt: new Date(),
-                ...apiUrls,
-                ...normFields,
-              },
-            });
-          });
-
-          // Call calculateMatchPoints transactionally and idempotently
-          await calculateMatchPoints(match.id);
-
-          summary.completed++;
-          summary.pointsCalculated++;
-
-        } else if (normalized.status === "LIVE") {
-          // LIVE match: update scoreA/scoreB only if valid numbers
-          const hasValidScores = apiScoreA !== null && apiScoreB !== null;
-          await prisma.match.update({
-            where: { id: match.id },
-            data: {
-              status: MatchStatus.LIVE,
-              teamAScore: hasValidScores ? apiScoreA : match.teamAScore,
-              teamBScore: hasValidScores ? apiScoreB : match.teamBScore,
-              scoreSource: "API",
-              apiProvider: "worldcup26.ir",
-              apiMatchId: normalized.apiMatchId,
-              lastSyncedAt: new Date(),
-              ...apiUrls,
-              ...normFields,
-            },
-          });
-          summary.updatedLive++;
-
-        } else {
-          // UPCOMING / Not started match
-          // 1. Do not overwrite POSTPONED or CANCELLED
-          if (match.status === MatchStatus.POSTPONED || match.status === MatchStatus.CANCELLED) {
-            summary.skippedUpcoming++;
-            continue;
-          }
-
-          // 2. Do not overwrite manually edited admin data
-          if (match.scoreSource === "ADMIN") {
-            summary.skippedUpcoming++;
-            continue;
-          }
-
-          // 3. Update mapping details, and optionally update kickoff time if match is UPCOMING and API kickoff time is valid
-          const updateData: any = {
-            apiProvider: "worldcup26.ir",
-            apiMatchId: normalized.apiMatchId,
-            lastSyncedAt: new Date(),
-            ...apiUrls,
-            ...normFields,
-          };
-
-          if (match.status === MatchStatus.UPCOMING && normalized.kickoffUtc) {
-            updateData.matchTime = normalized.kickoffUtc;
-            updateData.predictionDeadline = normalized.kickoffUtc;
-          }
-
-          await prisma.match.update({
-            where: { id: match.id },
-            data: updateData,
-          });
-
-          summary.skippedUpcoming++;
-        }
-
-      } catch (err: any) {
-        summary.errors.push(`Error processing game ${game.home_team_name_en} vs ${game.away_team_name_en}: ${err.message || err}`);
-      }
-    }
-
+    const res = await runMatchSync();
+    
     try {
       revalidatePath("/dashboard");
       revalidatePath("/matches");
@@ -747,11 +525,10 @@ export async function syncMatchesWithApi() {
       revalidatePath("/leaderboard");
       revalidatePath("/my-predictions");
     } catch (e) {
-      // Ignore revalidation errors when running outside of Next.js server context (e.g., during tests)
+      // Ignore revalidation errors when running outside of Next.js server context
     }
 
-    return { success: true, summary };
-
+    return res;
   } catch (error: any) {
     console.error("API sync fatal error:", error);
     return { success: false, error: `Failed to execute sync: ${error.message || error}` };

@@ -70,6 +70,7 @@ export default async function AdminPage() {
     liveCoverageUrl: match.liveCoverageUrl,
     broadcasterName: match.broadcasterName,
     streamSourceType: match.streamSourceType,
+    lastSyncedAt: match.lastSyncedAt ? match.lastSyncedAt.toISOString() : null,
     predictions: match.predictions.map((p) => ({
       id: p.id,
       userId: p.userId,

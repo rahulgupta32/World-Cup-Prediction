@@ -61,6 +61,7 @@ interface MatchData {
   broadcasterRegion?: string | null;
   coverageNote?: string | null;
   streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE";
+  lastSyncedAt?: string | null;
 }
 
 interface AdminPanelProps {
@@ -945,6 +946,21 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Synchronize live scores, match timings, and completed results directly from the `worldcup26.ir` API. Completed matches will trigger points calculation automatically.
                 </p>
+                {(() => {
+                  const synced = initialMatches.filter(m => m.lastSyncedAt);
+                  if (synced.length === 0) return null;
+                  const latest = synced.reduce((lat, cur) => {
+                    if (!lat || !cur.lastSyncedAt) return cur.lastSyncedAt || null;
+                    return new Date(cur.lastSyncedAt) > new Date(lat) ? cur.lastSyncedAt : lat;
+                  }, null as string | null);
+
+                  return latest ? (
+                    <div className="text-[10px] text-slate-500 font-semibold flex items-center space-x-1.5 pt-1">
+                      <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      <span>Last automatic sync: {new Date(latest).toLocaleString()}</span>
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div className="pt-2">
                 <button

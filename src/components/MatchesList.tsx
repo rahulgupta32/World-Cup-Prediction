@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
-import { submitPrediction } from "@/app/actions/predictions";
+import { submitPrediction, getMatchesFromDb } from "@/app/actions/predictions";
 import { 
   Trophy, 
   Clock, 
@@ -85,7 +85,14 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
   const [isPending, startTransition] = useTransition();
   const [clientNow, setClientNow] = useState(new Date());
 
-  // 1-second reactive clock for real-time locking
+  const [matches, setMatches] = useState<MatchData[]>(initialMatches);
+
+  // Sync state with props
+  useEffect(() => {
+    setMatches(initialMatches);
+  }, [initialMatches]);
+
+  // Dynamic clock for locking checks
   useEffect(() => {
     const interval = setInterval(() => {
       setClientNow(new Date());
@@ -93,6 +100,27 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
 
     return () => clearInterval(interval);
   }, []);
+
+  // Poll for live matches every 30 seconds when Live tab is active
+  useEffect(() => {
+    if (activeTab !== "live") return;
+
+    const fetchLatestMatches = async () => {
+      try {
+        const res = await getMatchesFromDb();
+        if (res.success && res.matches) {
+          setMatches(res.matches);
+        }
+      } catch (e) {
+        console.error("Auto-refresh error:", e);
+      }
+    };
+
+    fetchLatestMatches();
+    const interval = setInterval(fetchLatestMatches, 30000);
+
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   // Handle URL redirect query param
   useEffect(() => {
@@ -113,9 +141,9 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
   }, [searchParamsPredictId, initialMatches, clientNow]);
 
   // Filters matches by tab
-  const upcomingMatches = initialMatches.filter(m => m.status === "UPCOMING" || m.status === "POSTPONED");
-  const liveMatches = initialMatches.filter(m => m.status === "LIVE");
-  const completedMatches = initialMatches.filter(m => m.status === "COMPLETED" || m.status === "CANCELLED");
+  const upcomingMatches = matches.filter(m => m.status === "UPCOMING" || m.status === "POSTPONED");
+  const liveMatches = matches.filter(m => m.status === "LIVE");
+  const completedMatches = matches.filter(m => m.status === "COMPLETED" || m.status === "CANCELLED");
 
   const filteredMatches = 
     activeTab === "upcoming" ? upcomingMatches :
@@ -265,28 +293,50 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
 
   return (
     <div className="space-y-6">
-      {/* Tabs */}
-      <div className="flex border-b border-slate-800">
-        {(["upcoming", "live", "completed"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-              setExpandedPredictMatchId(null);
-              setExpandedPredictionsMatchId(null);
-            }}
-            className={`px-6 py-3 border-b-2 text-sm font-extrabold capitalize transition-all cursor-pointer ${
-              activeTab === tab
-                ? "border-emerald-500 text-emerald-400"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            {tab} ({
-              tab === "upcoming" ? upcomingMatches.length :
-              tab === "live" ? liveMatches.length : completedMatches.length
-            })
-          </button>
-        ))}
+      {/* Tabs & Last Synced Info */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-2 sm:pb-0 gap-3">
+        <div className="flex">
+          {(["upcoming", "live", "completed"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                setActiveTab(tab);
+                setExpandedPredictMatchId(null);
+                setExpandedPredictionsMatchId(null);
+              }}
+              className={`px-6 py-3 border-b-2 text-sm font-extrabold capitalize transition-all cursor-pointer ${
+                activeTab === tab
+                  ? "border-emerald-500 text-emerald-400"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {tab} ({
+                tab === "upcoming" ? upcomingMatches.length :
+                tab === "live" ? liveMatches.length : completedMatches.length
+              })
+            </button>
+          ))}
+        </div>
+
+        {matches.length > 0 && (
+          <div className="text-[11px] text-slate-500 font-semibold px-4 py-1 sm:py-0">
+            {(() => {
+              const synced = matches.filter(m => m.lastSyncedAt);
+              if (synced.length === 0) return null;
+              const latest = synced.reduce((lat, cur) => {
+                if (!lat || !cur.lastSyncedAt) return cur.lastSyncedAt || null;
+                return new Date(cur.lastSyncedAt) > new Date(lat) ? cur.lastSyncedAt : lat;
+              }, null as string | null);
+
+              return latest ? (
+                <span className="flex items-center space-x-1.5">
+                  <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                  <span>Scores auto-synced: {getSyncTimeText(latest, clientNow)}</span>
+                </span>
+              ) : null;
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Matches Grid */}
@@ -445,7 +495,7 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                       }`}>
                         {match.userPrediction 
                           ? `${match.userPrediction.pointsAwarded > 0 ? "+" : ""}${match.userPrediction.pointsAwarded} points` 
-                          : "0 points (Missed)"}
+                          : "-1 point (Missed)"}
                       </span>
                     )}
 

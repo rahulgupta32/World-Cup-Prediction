@@ -320,16 +320,16 @@ export default async function DashboardPage() {
                               ? "bg-slate-800 text-slate-400 border border-slate-750"
                               : "bg-red-500/10 text-red-400 border border-red-500/20"
                           }`}>
-                            {pred.predictionResult === "EXACT_SCORE" && "+5 pts · Exact Score"}
-                            {pred.predictionResult === "CORRECT_OUTCOME" && "+2 pts · Correct Outcome"}
-                            {pred.predictionResult === "WRONG" && "-1 pt · Wrong"}
-                            {pred.predictionResult === "VOID" && "0 pts · Void"}
-                          </span>
-                        ) : (
-                          <span className="bg-slate-950 text-slate-500 font-bold px-1.5 py-0.5 rounded-md border border-slate-850">
-                            0 pts · Missed
-                          </span>
-                        )}
+                             {pred.predictionResult === "EXACT_SCORE" && "+5 pts · Exact Score"}
+                             {pred.predictionResult === "CORRECT_OUTCOME" && "+3 pts · Correct Outcome"}
+                             {pred.predictionResult === "WRONG" && "-1 pt · Wrong"}
+                             {pred.predictionResult === "VOID" && "0 pts · Void"}
+                           </span>
+                         ) : (
+                           <span className="bg-slate-950 text-slate-500 font-bold px-1.5 py-0.5 rounded-md border border-slate-850">
+                             -1 pt · Missed
+                           </span>
+                         )}
                       </div>
                       
                       <div className="flex items-center justify-between text-sm py-1">
