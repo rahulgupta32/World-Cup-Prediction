@@ -488,14 +488,14 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                         match.userPrediction 
                           ? match.userPrediction.pointsAwarded > 0 
                             ? "bg-emerald-500/10 text-emerald-400" 
-                            : match.userPrediction.pointsAwarded < 0 
+                            : match.userPrediction.predictionResult === "WRONG"
                             ? "bg-red-500/10 text-red-400" 
                             : "bg-slate-800 text-slate-400"
                           : "bg-slate-800/50 text-slate-500"
                       }`}>
                         {match.userPrediction 
                           ? `${match.userPrediction.pointsAwarded > 0 ? "+" : ""}${match.userPrediction.pointsAwarded} points` 
-                          : "-1 point (Missed)"}
+                          : "0 points (Missed)"}
                       </span>
                     )}
 

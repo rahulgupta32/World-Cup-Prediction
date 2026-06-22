@@ -28,7 +28,7 @@ export function calculatePoints(
     return { points: 3, predictionResult: PredictionResult.CORRECT_OUTCOME };
   }
 
-  return { points: -1, predictionResult: PredictionResult.WRONG };
+  return { points: 0, predictionResult: PredictionResult.WRONG };
 }
 
 // Helper to determine match result from score

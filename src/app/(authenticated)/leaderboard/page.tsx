@@ -142,8 +142,8 @@ export default async function LeaderboardPage() {
                     <th className="px-6 py-3.5 text-center">Points</th>
                     <th className="px-6 py-3.5 text-center text-amber-400">Exact Score (+5)</th>
                     <th className="px-6 py-3.5 text-center text-emerald-400">Correct Outcome (+3)</th>
-                    <th className="px-6 py-3.5 text-center text-red-400">Wrong (-1)</th>
-                    <th className="px-6 py-3.5 text-center text-slate-400">Missed (-1)</th>
+                    <th className="px-6 py-3.5 text-center text-red-400">Wrong</th>
+                    <th className="px-6 py-3.5 text-center text-slate-400">Missed</th>
                     <th className="px-6 py-3.5 text-center">Accuracy</th>
                   </tr>
                 </thead>

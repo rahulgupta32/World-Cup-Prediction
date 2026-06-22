@@ -125,9 +125,10 @@ async function main() {
     // Missed completed matches
     const missedCount = completedMatchesCount - submittedCompletedCount;
     
-    // Total adjusted points deducts 1 point per missed completed match
-    const beforeAdjustedTotal = beforeTotalPoints; // Before, missed did not deduct anything
-    const afterAdjustedTotal = afterTotalPoints - missedCount;
+    // Before total points deducts 1 point per missed completed match and includes old prediction points
+    const beforeAdjustedTotal = beforeTotalPoints - missedCount;
+    // New total points is calculated exactly as exact*5 + correct*3
+    const afterAdjustedTotal = exactCount * 5 + correctCount * 3;
 
     report.push({
       userId: user.id,
@@ -143,22 +144,28 @@ async function main() {
       needsUpdate: updatesToExecute.length,
     });
 
-    if (confirm && updatesToExecute.length > 0) {
-      // Update in transaction block
-      await prisma.$transaction(
-        updatesToExecute.map((upd) =>
-          prisma.prediction.update({
-            where: { id: upd.predictionId },
-            data: {
-              pointsAwarded: upd.points,
-              predictionResult: upd.result,
-              isCalculated: true,
-            },
-          })
-        )
-      );
-      totalPredictionsUpdated += updatesToExecute.length;
-    }
+  }
+
+  // Get pending wrong predictions count before executing updates
+  const pendingCount = await prisma.prediction.count({
+    where: {
+      predictionResult: PredictionResult.WRONG,
+      pointsAwarded: -1,
+    },
+  });
+
+  totalPredictionsUpdated = 0;
+  if (confirm && pendingCount > 0) {
+    const updateResult = await prisma.prediction.updateMany({
+      where: {
+        predictionResult: PredictionResult.WRONG,
+        pointsAwarded: -1,
+      },
+      data: {
+        pointsAwarded: 0,
+      },
+    });
+    totalPredictionsUpdated = updateResult.count;
   }
 
   // 3. Print Report
@@ -192,7 +199,12 @@ async function main() {
     );
   }
   console.log("===============================================================================================");
-  console.log(`Total Predictions Updated In DB: ${totalPredictionsUpdated}`);
+  if (!confirm) {
+    console.log(`Pending wrong predictions to update: ${pendingCount}`);
+    console.log(`Actual DB updates written: 0`);
+  } else {
+    console.log(`Actual DB updates written: ${totalPredictionsUpdated}`);
+  }
   console.log("===============================================================================================\n");
 }
 

@@ -322,12 +322,12 @@ export default async function DashboardPage() {
                           }`}>
                              {pred.predictionResult === "EXACT_SCORE" && "+5 pts · Exact Score"}
                              {pred.predictionResult === "CORRECT_OUTCOME" && "+3 pts · Correct Outcome"}
-                             {pred.predictionResult === "WRONG" && "-1 pt · Wrong"}
+                             {pred.predictionResult === "WRONG" && "0 pts · Wrong"}
                              {pred.predictionResult === "VOID" && "0 pts · Void"}
                            </span>
                          ) : (
                            <span className="bg-slate-950 text-slate-500 font-bold px-1.5 py-0.5 rounded-md border border-slate-850">
-                             -1 pt · Missed
+                             0 pts · Missed
                            </span>
                          )}
                       </div>

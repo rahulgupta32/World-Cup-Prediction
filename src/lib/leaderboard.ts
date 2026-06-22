@@ -110,11 +110,11 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     };
     
     const missedCompleted = completedMatchesCount - stats.submittedCompletedCount;
-    // Deduct 1 point for every missed completed match
-    const adjustedPoints = stats.totalPoints - missedCompleted;
+    // Calculate total points explicitly using: exact * 5 + correct * 3
+    const adjustedPoints = stats.exactScoreCount * 5 + stats.correctOutcomeCount * 3;
     
     const totalCorrect = stats.exactScoreCount + stats.correctOutcomeCount;
-    const accuracy = stats.submittedCount > 0 ? (totalCorrect / stats.submittedCount) * 100 : 0;
+    const accuracy = stats.submittedCompletedCount > 0 ? (totalCorrect / stats.submittedCompletedCount) * 100 : 0;
 
     return {
       rank: 0, // Assigned after sorting
@@ -127,16 +127,19 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       exactScoreCount: stats.exactScoreCount,
       wrongPredictions: stats.wrongPredictions,
       missedPredictions: missedCompleted,
-      submittedCompletedCount: stats.submittedCount,
+      submittedCompletedCount: stats.submittedCompletedCount,
       accuracy: parseFloat(accuracy.toFixed(1)),
       createdAt: u.createdAt, // temporary for sorting
     } as any;
   });
 
-  // Sort: Total Points descending -> Exact Score Count descending -> Correct Outcome Count descending -> Wrong Predictions ascending -> User createdAt ascending
+  // Sort: Total Points descending -> Accuracy descending -> Exact Score Count descending -> Correct Outcome Count descending -> Wrong Predictions ascending -> Missed Predictions ascending -> User name alphabetically ascending
   entries.sort((a: any, b: any) => {
     if (b.totalPoints !== a.totalPoints) {
       return b.totalPoints - a.totalPoints;
+    }
+    if (b.accuracy !== a.accuracy) {
+      return b.accuracy - a.accuracy;
     }
     if (b.exactScoreCount !== a.exactScoreCount) {
       return b.exactScoreCount - a.exactScoreCount;
@@ -147,7 +150,10 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     if (a.wrongPredictions !== b.wrongPredictions) {
       return a.wrongPredictions - b.wrongPredictions;
     }
-    return a.createdAt.getTime() - b.createdAt.getTime();
+    if (a.missedPredictions !== b.missedPredictions) {
+      return a.missedPredictions - b.missedPredictions;
+    }
+    return a.name.localeCompare(b.name);
   });
 
   // Assign ranks
@@ -158,9 +164,11 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       const curr = entries[i];
       const isTie =
         prev.totalPoints === curr.totalPoints &&
+        prev.accuracy === curr.accuracy &&
         prev.exactScoreCount === curr.exactScoreCount &&
         prev.correctOutcomeCount === curr.correctOutcomeCount &&
-        prev.wrongPredictions === curr.wrongPredictions;
+        prev.wrongPredictions === curr.wrongPredictions &&
+        prev.missedPredictions === curr.missedPredictions;
 
       if (!isTie) {
         currentRank = i + 1;
