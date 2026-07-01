@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/db";
 import { verifyAdminAction } from "@/lib/auth";
 import { getResultFromScore, calculateMatchPoints, recalculateAllPoints } from "@/lib/scoring";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { Outcome, MatchStatus, StreamSourceType } from "@prisma/client";
 import { runMatchSync } from "@/lib/match-sync";
 
@@ -32,6 +32,11 @@ export async function createMatch(prevState: any, formData: FormData) {
   const predictionDeadlineInput = formData.get("predictionDeadline")?.toString();
   const group = formData.get("group")?.toString().trim() || null;
   const venue = formData.get("venue")?.toString().trim() || null;
+
+  const stage = (formData.get("stage")?.toString() || "GROUP") as any;
+  const isKnockout = formData.get("isKnockout") === "true";
+  const decidedBy = (formData.get("decidedBy")?.toString() || "NORMAL_TIME") as any;
+  const winnerTeam = formData.get("winnerTeam")?.toString().trim() || null;
 
   const officialMatchUrl = formData.get("officialMatchUrl")?.toString().trim() || null;
   const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
@@ -66,6 +71,10 @@ export async function createMatch(prevState: any, formData: FormData) {
     const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
     const matchDateKey = matchTime.toISOString().split("T")[0];
 
+    if (winnerTeam && winnerTeam !== canonicalA && winnerTeam !== canonicalB) {
+      return { success: false, error: `Winner team must be either "${canonicalA}" or "${canonicalB}".` };
+    }
+
     await prisma.match.create({
       data: {
         teamA: canonicalA,
@@ -87,12 +96,21 @@ export async function createMatch(prevState: any, formData: FormData) {
         normalizedTeamA: teams[0],
         normalizedTeamB: teams[1],
         matchDateKey,
+        stage,
+        isKnockout,
+        decidedBy,
+        winnerTeam,
       },
     });
 
     revalidatePath("/dashboard");
     revalidatePath("/matches");
     revalidatePath("/admin");
+
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {}
 
     return { success: true };
   } catch (error) {
@@ -114,6 +132,11 @@ export async function updateMatch(matchId: string, formData: FormData) {
   const status = formData.get("status")?.toString() as MatchStatus;
   const group = formData.get("group")?.toString().trim() || null;
   const venue = formData.get("venue")?.toString().trim() || null;
+
+  const stage = (formData.get("stage")?.toString() || "GROUP") as any;
+  const isKnockout = formData.get("isKnockout") === "true";
+  const decidedBy = (formData.get("decidedBy")?.toString() || "NORMAL_TIME") as any;
+  const winnerTeam = formData.get("winnerTeam")?.toString().trim() || null;
 
   const officialMatchUrl = formData.get("officialMatchUrl")?.toString().trim() || null;
   const officialBroadcasterUrl = formData.get("officialBroadcasterUrl")?.toString().trim() || null;
@@ -153,6 +176,10 @@ export async function updateMatch(matchId: string, formData: FormData) {
     const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
     const matchDateKey = matchTime.toISOString().split("T")[0];
 
+    if (winnerTeam && winnerTeam !== canonicalA && winnerTeam !== canonicalB) {
+      return { success: false, error: `Winner team must be either "${canonicalA}" or "${canonicalB}".` };
+    }
+
     await prisma.match.update({
       where: { id: matchId },
       data: {
@@ -176,6 +203,10 @@ export async function updateMatch(matchId: string, formData: FormData) {
         normalizedTeamA: teams[0],
         normalizedTeamB: teams[1],
         matchDateKey,
+        stage,
+        isKnockout,
+        decidedBy,
+        winnerTeam,
       },
     });
 
@@ -198,6 +229,11 @@ export async function updateMatch(matchId: string, formData: FormData) {
     revalidatePath("/admin");
     revalidatePath("/leaderboard");
     revalidatePath("/my-predictions");
+
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {}
 
     return { success: true };
   } catch (error) {
@@ -222,6 +258,11 @@ export async function deleteMatch(matchId: string) {
     revalidatePath("/admin");
     revalidatePath("/leaderboard");
 
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {}
+
     return { success: true };
   } catch (error) {
     console.error("Delete match error:", error);
@@ -238,6 +279,11 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
   const scoreAString = formData.get("scoreA")?.toString();
   const scoreBString = formData.get("scoreB")?.toString();
   const status = formData.get("status")?.toString() as MatchStatus;
+
+  const stage = formData.get("stage")?.toString() as any;
+  const isKnockout = formData.get("isKnockout") === "true";
+  const decidedBy = formData.get("decidedBy")?.toString() as any;
+  const winnerTeam = formData.get("winnerTeam")?.toString().trim() || null;
 
   if (!status) {
     return { success: false, error: "Status is required." };
@@ -261,7 +307,26 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
   }
 
   try {
-    const result = (scoreA !== null && scoreB !== null) ? getResultFromScore(scoreA, scoreB) : null;
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+    });
+
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+
+    if (winnerTeam && winnerTeam !== match.teamA && winnerTeam !== match.teamB) {
+      return { success: false, error: `Winner team must be either "${match.teamA}" or "${match.teamB}".` };
+    }
+
+    let result = (scoreA !== null && scoreB !== null) ? getResultFromScore(scoreA, scoreB) : null;
+    if (isKnockout && winnerTeam) {
+      if (winnerTeam === match.teamA) {
+        result = Outcome.TEAM_A;
+      } else if (winnerTeam === match.teamB) {
+        result = Outcome.TEAM_B;
+      }
+    }
 
     await prisma.match.update({
       where: { id: matchId },
@@ -271,6 +336,10 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
         status: status,
         result: result,
         scoreSource: "ADMIN",
+        stage: stage || undefined,
+        isKnockout: isKnockout,
+        decidedBy: decidedBy || undefined,
+        winnerTeam: winnerTeam,
       },
     });
 
@@ -295,6 +364,11 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
     revalidatePath("/leaderboard");
     revalidatePath("/my-predictions");
 
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {}
+
     return { success: true };
   } catch (error) {
     console.error("Submit result error:", error);
@@ -316,6 +390,11 @@ export async function triggerRecalculate() {
     revalidatePath("/admin");
     revalidatePath("/leaderboard");
     revalidatePath("/my-predictions");
+
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {}
 
     return { success: true };
   } catch (error) {
@@ -509,14 +588,15 @@ function findDbMatch(normalized: NormalizedApiMatch, dbMatches: any[]): any {
   return nameMatched[0];
 }
 
-export async function syncMatchesWithApi() {
+export async function syncMatchesWithApi(providerName?: string) {
   const { authenticated } = await verifyAdminAction();
   if (!authenticated) {
     return { success: false, error: "Unauthorized. Admin privileges required." };
   }
 
   try {
-    const res = await runMatchSync();
+    const selectedProvider = providerName || process.env.SYNC_PROVIDER || "worldcup26.ir";
+    const res = await runMatchSync(selectedProvider);
     
     try {
       revalidatePath("/dashboard");
@@ -524,6 +604,8 @@ export async function syncMatchesWithApi() {
       revalidatePath("/admin");
       revalidatePath("/leaderboard");
       revalidatePath("/my-predictions");
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
     } catch (e) {
       // Ignore revalidation errors when running outside of Next.js server context
     }

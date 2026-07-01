@@ -40,6 +40,23 @@ enum PredictionResult {
   VOID
 }
 
+enum MatchStage {
+  GROUP
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum DecidedBy {
+  NORMAL_TIME
+  EXTRA_TIME
+  PENALTIES
+  CANCELLED
+  VOID
+}
+
 model User {
   id                          String       @id @default(uuid())
   name                        String
@@ -89,6 +106,11 @@ model Match {
   normalizedTeamA        String?
   normalizedTeamB        String?
   matchDateKey           String?
+
+  stage                  MatchStage        @default(GROUP)
+  isKnockout             Boolean           @default(false)
+  decidedBy              DecidedBy         @default(NORMAL_TIME)
+  winnerTeam             String?
 
   @@index([status])
   @@index([matchTime])

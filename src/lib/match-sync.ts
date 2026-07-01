@@ -200,7 +200,7 @@ function findDbMatch(normalized: NormalizedApiMatch, dbMatches: any[]): any {
   return nameMatched[0];
 }
 
-export async function runMatchSync() {
+export async function runMatchSync(selectedProvider = "worldcup26.ir") {
   const summary = {
     totalFetched: 0,
     matched: 0,
@@ -212,6 +212,14 @@ export async function runMatchSync() {
     unmatched: 0,
     errors: [] as string[],
   };
+
+  const apiKey = process.env.WORLD_CUP_API_KEY || process.env.FOOTBALL_API_KEY;
+  const requiresKey = selectedProvider !== "worldcup26.ir";
+
+  if (requiresKey && !apiKey) {
+    console.error(`[SYNC] Sync failed: API key is not configured for provider ${selectedProvider}.`);
+    return { success: false, error: "API key is not configured." };
+  }
 
   try {
     // 1. Throttling check (database-backed lock: skip if a match was synced in the last 60 seconds)
@@ -239,14 +247,18 @@ export async function runMatchSync() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+    console.log(`[SYNC] Requesting scores from provider: ${selectedProvider}`);
     let res;
     try {
       res = await fetch("https://worldcup26.ir/get/games", {
         cache: "no-store",
         signal: controller.signal,
       });
+      console.log(`[SYNC] Provider: ${selectedProvider}, Status Code: ${res.status}`);
     } catch (err: any) {
       clearTimeout(timeoutId);
+      const errorType = err.name === "AbortError" ? "TimeoutError" : "NetworkError";
+      console.error(`[SYNC] Provider: ${selectedProvider}, Error Type: ${errorType}, Error Message: ${err.message || err}`);
       if (err.name === "AbortError") {
         return { success: false, error: "API request timed out (10s limit exceeded)." };
       }
@@ -255,6 +267,7 @@ export async function runMatchSync() {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
+      console.error(`[SYNC] Provider: ${selectedProvider}, Error Type: HTTP_${res.status}, Status: ${res.statusText}`);
       return { success: false, error: `API returned error status: ${res.status} ${res.statusText}` };
     }
 

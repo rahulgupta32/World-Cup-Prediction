@@ -1,0 +1,11 @@
+-- CreateEnum
+CREATE TYPE "MatchStage" AS ENUM ('GROUP', 'ROUND_OF_16', 'QUARTER_FINAL', 'SEMI_FINAL', 'THIRD_PLACE', 'FINAL');
+
+-- CreateEnum
+CREATE TYPE "DecidedBy" AS ENUM ('NORMAL_TIME', 'EXTRA_TIME', 'PENALTIES', 'CANCELLED', 'VOID');
+
+-- AlterTable
+ALTER TABLE "Match" ADD COLUMN     "decidedBy" "DecidedBy" NOT NULL DEFAULT 'NORMAL_TIME',
+ADD COLUMN     "isKnockout" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "stage" "MatchStage" NOT NULL DEFAULT 'GROUP',
+ADD COLUMN     "winnerTeam" TEXT;

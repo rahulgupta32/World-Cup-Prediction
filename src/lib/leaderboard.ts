@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { unstable_cache } from "next/cache";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -16,6 +17,18 @@ export interface LeaderboardEntry {
 }
 
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
+  return getLeaderboardCached();
+}
+
+const getLeaderboardCached = unstable_cache(
+  async () => {
+    return getLeaderboardUncached();
+  },
+  ["leaderboard"],
+  { revalidate: 60, tags: ["leaderboard"] }
+);
+
+async function getLeaderboardUncached(): Promise<LeaderboardEntry[]> {
   // 1. Fetch all users
   const users = await prisma.user.findMany({
     select: {

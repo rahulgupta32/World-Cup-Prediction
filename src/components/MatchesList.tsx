@@ -101,26 +101,7 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for live matches every 30 seconds when Live tab is active
-  useEffect(() => {
-    if (activeTab !== "live") return;
 
-    const fetchLatestMatches = async () => {
-      try {
-        const res = await getMatchesFromDb();
-        if (res.success && res.matches) {
-          setMatches(res.matches);
-        }
-      } catch (e) {
-        console.error("Auto-refresh error:", e);
-      }
-    };
-
-    fetchLatestMatches();
-    const interval = setInterval(fetchLatestMatches, 30000);
-
-    return () => clearInterval(interval);
-  }, [activeTab]);
 
   // Handle URL redirect query param
   useEffect(() => {

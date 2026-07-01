@@ -62,6 +62,10 @@ interface MatchData {
   coverageNote?: string | null;
   streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE";
   lastSyncedAt?: string | null;
+  stage?: "GROUP" | "ROUND_OF_16" | "QUARTER_FINAL" | "SEMI_FINAL" | "THIRD_PLACE" | "FINAL";
+  isKnockout?: boolean;
+  decidedBy?: "NORMAL_TIME" | "EXTRA_TIME" | "PENALTIES" | "CANCELLED" | "VOID";
+  winnerTeam?: string | null;
 }
 
 interface AdminPanelProps {
@@ -101,9 +105,21 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [editCoverageNote, setEditCoverageNote] = useState("");
   const [editStreamSourceType, setEditStreamSourceType] = useState<"OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE">("NONE");
 
+  // Edit Knockout specific states
+  const [editStage, setEditStage] = useState<string>("GROUP");
+  const [editIsKnockout, setEditIsKnockout] = useState<boolean>(false);
+  const [editDecidedBy, setEditDecidedBy] = useState<string>("NORMAL_TIME");
+  const [editWinnerTeam, setEditWinnerTeam] = useState<string>("");
+
   const [resultScoreA, setResultScoreA] = useState("");
   const [resultScoreB, setResultScoreB] = useState("");
   const [resultStatus, setResultStatus] = useState<"LIVE" | "COMPLETED" | "CANCELLED" | "POSTPONED">("COMPLETED");
+
+  // Result Knockout specific states
+  const [resultStage, setResultStage] = useState<string>("GROUP");
+  const [resultIsKnockout, setResultIsKnockout] = useState<boolean>(false);
+  const [resultDecidedBy, setResultDecidedBy] = useState<string>("NORMAL_TIME");
+  const [resultWinnerTeam, setResultWinnerTeam] = useState<string>("");
 
   const handleEditClick = (match: MatchData) => {
     setActionError(null);
@@ -127,6 +143,11 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setEditBroadcasterRegion(match.broadcasterRegion || "");
     setEditCoverageNote(match.coverageNote || "");
     setEditStreamSourceType(match.streamSourceType || "NONE");
+
+    setEditStage(match.stage || "GROUP");
+    setEditIsKnockout(match.isKnockout || false);
+    setEditDecidedBy(match.decidedBy || "NORMAL_TIME");
+    setEditWinnerTeam(match.winnerTeam || "");
   };
 
   const handleResultClick = (match: MatchData) => {
@@ -146,6 +167,11 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
         ? "POSTPONED"
         : "COMPLETED"
     );
+
+    setResultStage(match.stage || "GROUP");
+    setResultIsKnockout(match.isKnockout || false);
+    setResultDecidedBy(match.decidedBy || "NORMAL_TIME");
+    setResultWinnerTeam(match.winnerTeam || "");
   };
 
   const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>, matchId: string) => {
@@ -191,6 +217,10 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     formData.append("broadcasterRegion", editBroadcasterRegion);
     formData.append("coverageNote", editCoverageNote);
     formData.append("streamSourceType", editStreamSourceType);
+    formData.append("stage", editStage);
+    formData.append("isKnockout", editIsKnockout ? "true" : "false");
+    formData.append("decidedBy", editDecidedBy);
+    formData.append("winnerTeam", editWinnerTeam);
 
     startTransition(async () => {
       const res = await updateMatch(matchId, formData);
@@ -212,6 +242,10 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     formData.append("scoreA", resultScoreA);
     formData.append("scoreB", resultScoreB);
     formData.append("status", resultStatus);
+    formData.append("stage", resultStage);
+    formData.append("isKnockout", resultIsKnockout ? "true" : "false");
+    formData.append("decidedBy", resultDecidedBy);
+    formData.append("winnerTeam", resultWinnerTeam);
 
     startTransition(async () => {
       const res = await submitMatchResult(matchId, formData);
@@ -420,6 +454,54 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                       name="predictionDeadline"
                       required
                       className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1.5">Match Stage</label>
+                    <select
+                      name="stage"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                    >
+                      <option value="GROUP">Group Stage</option>
+                      <option value="ROUND_OF_16">Round of 16</option>
+                      <option value="QUARTER_FINAL">Quarter-Final</option>
+                      <option value="SEMI_FINAL">Semi-Final</option>
+                      <option value="THIRD_PLACE">Third Place</option>
+                      <option value="FINAL">Final</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1.5">Knockout?</label>
+                    <select
+                      name="isKnockout"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                    >
+                      <option value="false">No (Group)</option>
+                      <option value="true">Yes (Knockout)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1.5">Decided By</label>
+                    <select
+                      name="decidedBy"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                    >
+                      <option value="NORMAL_TIME">Normal Time</option>
+                      <option value="EXTRA_TIME">Extra Time</option>
+                      <option value="PENALTIES">Penalties</option>
+                      <option value="CANCELLED">Cancelled</option>
+                      <option value="VOID">Void</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1.5">Winner Team Name</label>
+                    <input
+                      name="winnerTeam"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="e.g. France"
                     />
                   </div>
                 </div>
@@ -678,6 +760,58 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                           </div>
                         </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1">Match Stage</label>
+                            <select
+                              value={editStage}
+                              onChange={(e) => setEditStage(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 font-medium"
+                            >
+                              <option value="GROUP">Group Stage</option>
+                              <option value="ROUND_OF_16">Round of 16</option>
+                              <option value="QUARTER_FINAL">Quarter-Final</option>
+                              <option value="SEMI_FINAL">Semi-Final</option>
+                              <option value="THIRD_PLACE">Third Place</option>
+                              <option value="FINAL">Final</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1">Knockout?</label>
+                            <select
+                              value={editIsKnockout ? "true" : "false"}
+                              onChange={(e) => setEditIsKnockout(e.target.value === "true")}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 font-medium"
+                            >
+                              <option value="false">No (Group)</option>
+                              <option value="true">Yes (Knockout)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1">Decided By</label>
+                            <select
+                              value={editDecidedBy}
+                              onChange={(e) => setEditDecidedBy(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 font-medium"
+                            >
+                              <option value="NORMAL_TIME">Normal Time</option>
+                              <option value="EXTRA_TIME">Extra Time</option>
+                              <option value="PENALTIES">Penalties</option>
+                              <option value="CANCELLED">Cancelled</option>
+                              <option value="VOID">Void</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1">Winner Team Name</label>
+                            <input
+                              value={editWinnerTeam}
+                              onChange={(e) => setEditWinnerTeam(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:ring-2 focus:ring-emerald-500"
+                              placeholder="e.g. France"
+                            />
+                          </div>
+                        </div>
+
                         <div className="border-t border-slate-850 pt-4 mt-4 space-y-4">
                           <h5 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Live Broadcast & Coverage Links</h5>
                           <div className="text-[10px] text-slate-400 bg-slate-950 border border-slate-850 p-2.5 rounded-xl">
@@ -830,6 +964,61 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                           </select>
                         </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-sm mx-auto">
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1.5 font-semibold">Match Stage</label>
+                            <select
+                              value={resultStage}
+                              onChange={(e) => setResultStage(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500 font-bold"
+                            >
+                              <option value="GROUP">Group Stage</option>
+                              <option value="ROUND_OF_16">Round of 16</option>
+                              <option value="QUARTER_FINAL">Quarter-Final</option>
+                              <option value="SEMI_FINAL">Semi-Final</option>
+                              <option value="THIRD_PLACE">Third Place</option>
+                              <option value="FINAL">Final</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1.5 font-semibold">Knockout?</label>
+                            <select
+                              value={resultIsKnockout ? "true" : "false"}
+                              onChange={(e) => setResultIsKnockout(e.target.value === "true")}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500 font-bold"
+                            >
+                              <option value="false">No (Group)</option>
+                              <option value="true">Yes (Knockout)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1.5 font-semibold">Decided By</label>
+                            <select
+                              value={resultDecidedBy}
+                              onChange={(e) => setResultDecidedBy(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500 font-bold"
+                            >
+                              <option value="NORMAL_TIME">Normal Time</option>
+                              <option value="EXTRA_TIME">Extra Time</option>
+                              <option value="PENALTIES">Penalties</option>
+                              <option value="CANCELLED">Cancelled</option>
+                              <option value="VOID">Void</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-450 mb-1.5 font-semibold">Winner/Advancing Team</label>
+                            <select
+                              value={resultWinnerTeam || ""}
+                              onChange={(e) => setResultWinnerTeam(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500 font-bold"
+                            >
+                              <option value="">No winner (Draw/N/A)</option>
+                              <option value={match.teamA}>{match.teamA}</option>
+                              <option value={match.teamB}>{match.teamB}</option>
+                            </select>
+                          </div>
+                        </div>
+
                         <div className="flex justify-end space-x-2 pt-2">
                           <button
                             type="button"
@@ -944,7 +1133,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   <h3 className="text-md font-bold text-slate-200">World Cup API Sync</h3>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Synchronize live scores, match timings, and completed results directly from the `worldcup26.ir` API. Completed matches will trigger points calculation automatically.
+                  Manual sync only. Automatic sync is disabled to reduce database usage. Completed matches will trigger points calculation automatically.
                 </p>
                 {(() => {
                   const synced = initialMatches.filter(m => m.lastSyncedAt);
@@ -957,7 +1146,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   return latest ? (
                     <div className="text-[10px] text-slate-500 font-semibold flex items-center space-x-1.5 pt-1">
                       <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                      <span>Last automatic sync: {new Date(latest).toLocaleString()}</span>
+                      <span>Last manual sync: {new Date(latest).toLocaleString()}</span>
                     </div>
                   ) : null;
                 })()}

@@ -107,17 +107,19 @@ export default function LoginPage() {
           </form>
 
           {/* Dev credentials box */}
-          <div className="mt-6 border-t border-slate-800/80 pt-6">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Test Accounts:</h4>
-            <div className="space-y-1.5 text-xs text-slate-400 bg-slate-950/50 rounded-xl p-3 border border-slate-800/40">
-              <div>
-                <span className="font-semibold text-amber-500">Admin:</span> admin@league.com / admin123
-              </div>
-              <div>
-                <span className="font-semibold text-emerald-500">Users:</span> alice@league.com to emma@league.com / password123
+          {process.env.NODE_ENV !== "production" && (
+            <div className="mt-6 border-t border-slate-800/80 pt-6">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Test Accounts:</h4>
+              <div className="space-y-1.5 text-xs text-slate-400 bg-slate-950/50 rounded-xl p-3 border border-slate-800/40">
+                <div>
+                  <span className="font-semibold text-amber-500">Admin:</span> admin@league.com / admin123
+                </div>
+                <div>
+                  <span className="font-semibold text-emerald-500">Users:</span> alice@league.com to emma@league.com / password123
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-6 text-center">
             <span className="text-sm text-slate-400">

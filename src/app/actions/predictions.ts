@@ -3,8 +3,27 @@
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { isScoreConsistentWithResult } from "@/lib/scoring";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { Outcome } from "@prisma/client";
+
+const getCachedRawMatches = unstable_cache(
+  async () => {
+    return prisma.match.findMany({
+      include: {
+        predictions: {
+          include: {
+            user: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+      orderBy: { matchTime: "asc" },
+    });
+  },
+  ["raw-matches"],
+  { revalidate: 60, tags: ["raw-matches"] }
+);
 
 export async function submitPrediction(formData: FormData) {
   const sessionUser = await getSessionUser();
@@ -104,6 +123,13 @@ export async function submitPrediction(formData: FormData) {
     revalidatePath("/my-predictions");
     revalidatePath("/leaderboard");
 
+    try {
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {
+      // Ignore cache clear error
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Prediction submission error:", error);
@@ -118,18 +144,7 @@ export async function getMatchesFromDb() {
   }
 
   try {
-    const matches = await prisma.match.findMany({
-      include: {
-        predictions: {
-          include: {
-            user: {
-              select: { name: true },
-            },
-          },
-        },
-      },
-      orderBy: { matchTime: "asc" },
-    });
+    const matches = await getCachedRawMatches();
 
     const now = new Date();
 
@@ -155,6 +170,10 @@ export async function getMatchesFromDb() {
         teamAScore: match.teamAScore,
         teamBScore: match.teamBScore,
         result: match.result,
+        stage: match.stage,
+        isKnockout: match.isKnockout,
+        decidedBy: match.decidedBy,
+        winnerTeam: match.winnerTeam,
         isLocked,
         officialMatchUrl: match.officialMatchUrl,
         officialBroadcasterUrl: match.officialBroadcasterUrl,
