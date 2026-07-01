@@ -644,3 +644,34 @@ export async function syncKnockoutFixturesWithApi() {
     return { success: false, error: `Failed to execute sync: ${error.message || error}` };
   }
 }
+
+export async function reconcileFixtures(apply: boolean) {
+  const { authenticated } = await verifyAdminAction();
+  if (!authenticated) {
+    return { success: false, error: "Unauthorized. Admin privileges required." };
+  }
+
+  try {
+    const { auditAndReconcileFixtures } = require("@/lib/match-reconcile");
+    const res = await auditAndReconcileFixtures(apply);
+
+    if (apply && res.success) {
+      try {
+        revalidatePath("/dashboard");
+        revalidatePath("/matches");
+        revalidatePath("/admin");
+        revalidatePath("/leaderboard");
+        revalidatePath("/my-predictions");
+        (revalidateTag as any)("leaderboard");
+        (revalidateTag as any)("raw-matches");
+      } catch (e) {
+        // Ignore cache clear error
+      }
+    }
+
+    return res;
+  } catch (error: any) {
+    console.error("Fixture reconciliation action fatal error:", error);
+    return { success: false, error: `Failed to reconcile fixtures: ${error.message || error}` };
+  }
+}

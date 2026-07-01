@@ -67,7 +67,7 @@ function parseLocalDate(localDateStr: string, stadiumId: string): Date | null {
   return new Date(localUtcTimestamp - offset * 60 * 60 * 1000);
 }
 
-function normalizeTeamName(name: string): string {
+export function normalizeTeamName(name: string): string {
   if (!name) return "";
   let clean = name.trim().toLowerCase();
   clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -92,7 +92,7 @@ function normalizeTeamName(name: string): string {
   return clean;
 }
 
-function getCanonicalTeamName(name: string): string {
+export function getCanonicalTeamName(name: string): string {
   if (!name) return "";
   const clean = name.trim();
   const normalized = normalizeTeamName(clean);
@@ -111,7 +111,7 @@ function getCanonicalTeamName(name: string): string {
   return clean;
 }
 
-function toNormalizedApiMatch(game: any): NormalizedApiMatch {
+export function toNormalizedApiMatch(game: any): NormalizedApiMatch {
   const scoreAStr = game.home_score;
   const scoreBStr = game.away_score;
   const scoreA = (scoreAStr !== undefined && scoreAStr !== null && scoreAStr !== "null" && scoreAStr !== "") ? parseInt(scoreAStr) : null;
@@ -484,7 +484,7 @@ export async function runMatchSync(selectedProvider = "worldcup26.ir") {
   }
 }
 
-function getStageFromApiType(type: string): MatchStage | null {
+export function getStageFromApiType(type: string): MatchStage | null {
   switch (type?.toLowerCase()) {
     case "r32": return "ROUND_OF_32";
     case "r16": return "ROUND_OF_16";

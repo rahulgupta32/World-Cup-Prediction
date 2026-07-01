@@ -8,7 +8,8 @@ import {
   submitMatchResult, 
   triggerRecalculate,
   syncMatchesWithApi,
-  syncKnockoutFixturesWithApi
+  syncKnockoutFixturesWithApi,
+  reconcileFixtures
 } from "@/app/actions/admin";
 import { 
   Settings, 
@@ -81,6 +82,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [resultMatchId, setResultMatchId] = useState<string | null>(null);
   const [syncSummary, setSyncSummary] = useState<any | null>(null);
   const [knockoutSummary, setKnockoutSummary] = useState<any | null>(null);
+  const [reconcileResult, setReconcileResult] = useState<any | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncPending, startSyncTransition] = useTransition();
   const [expandedPredictionsMatchId, setExpandedPredictionsMatchId] = useState<string | null>(null);
@@ -282,6 +284,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setSyncError(null);
     setSyncSummary(null);
     setKnockoutSummary(null);
+    setReconcileResult(null);
 
     startTransition(async () => {
       const res = await triggerRecalculate();
@@ -299,6 +302,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setSyncError(null);
     setSyncSummary(null);
     setKnockoutSummary(null);
+    setReconcileResult(null);
 
     startSyncTransition(async () => {
       try {
@@ -321,6 +325,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setSyncError(null);
     setSyncSummary(null);
     setKnockoutSummary(null);
+    setReconcileResult(null);
 
     startSyncTransition(async () => {
       try {
@@ -333,6 +338,29 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
         }
       } catch (err: any) {
         setSyncError("An unexpected error occurred while running the sync. Please try again.");
+      }
+    });
+  };
+
+  const handleReconcile = async (apply: boolean) => {
+    setActionError(null);
+    setActionSuccess(null);
+    setSyncError(null);
+    setSyncSummary(null);
+    setKnockoutSummary(null);
+    setReconcileResult(null);
+
+    startSyncTransition(async () => {
+      try {
+        const res = await reconcileFixtures(apply);
+        if (res.success) {
+          setActionSuccess(apply ? "Safe fixture updates applied successfully!" : "Fixture audit completed! Review the comparison below.");
+          setReconcileResult(res);
+        } else {
+          setSyncError(res.error || "Failed to run fixture reconciliation.");
+        }
+      } catch (err: any) {
+        setSyncError("An unexpected error occurred while running reconciliation. Please try again.");
       }
     });
   };
@@ -1149,7 +1177,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
       {/* TAB: System Actions */}
       {activeTab === "system" && (
         <div className="space-y-6 max-w-4xl">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
             {/* Card 1: API Synchronization */}
             <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
@@ -1212,7 +1240,38 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
               </div>
             </div>
 
-            {/* Card 3: Points Recalculation */}
+            {/* Card 3: Fixture Reconciliation */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <CheckSquare className="h-5 w-5" />
+                  <h3 className="text-md font-bold text-slate-200">Fixture Reconciliation</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Audit and update matches by comparing with the provider database. Safely handles TBDs, placeholders, and schedule changes.
+                </p>
+              </div>
+              <div className="pt-2 flex flex-col space-y-2">
+                <button
+                  onClick={() => handleReconcile(false)}
+                  disabled={isSyncPending || isActionPending}
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                >
+                  <Activity className={`h-4 w-4 ${isSyncPending ? "animate-pulse" : ""}`} />
+                  <span>Run Fixture Audit (Dry-Run)</span>
+                </button>
+                <button
+                  onClick={() => handleReconcile(true)}
+                  disabled={isSyncPending || isActionPending}
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                >
+                  <CheckSquare className="h-4 w-4" />
+                  <span>Apply Safe Fixture Updates</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 4: Points Recalculation */}
             <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-center space-x-2 text-emerald-400">
@@ -1376,6 +1435,98 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Reconcile Results Display */}
+          {reconcileResult && (
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 max-w-4xl overflow-hidden">
+              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider border-b border-slate-850 pb-2">
+                Fixture Reconciliation Report ({reconcileResult.summary.updatesApplied} Applied / {reconcileResult.summary.safeUpdatesIdentified} Safe Updates Identified)
+              </h3>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pb-2">
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Scanned (Local)</span>
+                  <span className="text-lg font-black text-slate-100">{reconcileResult.summary.totalLocalScanned}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Fetched (API)</span>
+                  <span className="text-lg font-black text-slate-100">{reconcileResult.summary.totalApiFixtures}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Safe Updates</span>
+                  <span className="text-lg font-black text-emerald-450">{reconcileResult.summary.safeUpdatesIdentified}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Ambiguous Skipped</span>
+                  <span className="text-lg font-black text-amber-500">{reconcileResult.summary.ambiguousSkipped}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Risky Skipped</span>
+                  <span className="text-lg font-black text-red-400">{reconcileResult.summary.riskySkipped}</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto max-h-[450px] border border-slate-850 rounded-xl">
+                <table className="w-full text-[11px] text-slate-350 border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950 border-b border-slate-800 text-left font-bold text-slate-400 uppercase tracking-wider sticky top-0 z-10">
+                      <th className="py-2.5 px-3">Local Match</th>
+                      <th className="py-2.5 px-3">API Match</th>
+                      <th className="py-2.5 px-3">Current Kickoff</th>
+                      <th className="py-2.5 px-3">Proposed Kickoff</th>
+                      <th className="py-2.5 px-3 text-center">Confidence</th>
+                      <th className="py-2.5 px-3 text-center">Action/Status</th>
+                      <th className="py-2.5 px-3">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {reconcileResult.items.map((item: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-950/40">
+                        <td className="py-2 px-3">
+                          {item.currentTeamA ? (
+                            <span className="font-bold text-slate-200">{item.currentTeamA} vs {item.currentTeamB}</span>
+                          ) : (
+                            <span className="italic text-slate-500">Not Found (Local)</span>
+                          )}
+                          {item.localId && <span className="block text-[8px] text-slate-500 font-mono">ID: {item.localId}</span>}
+                        </td>
+                        <td className="py-2 px-3 font-semibold text-slate-300">
+                          {item.proposedTeamA ? `${item.proposedTeamA} vs ${item.proposedTeamB}` : <span className="italic text-slate-500">Not Found (API)</span>}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-450">
+                          {item.currentKickoff ? new Date(item.currentKickoff).toLocaleString() : "—"}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-350">
+                          {item.proposedKickoff ? new Date(item.proposedKickoff).toLocaleString() : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                            item.confidence === "None" ? "bg-slate-800 text-slate-400" : "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20"
+                          }`}>
+                            {item.confidence}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                            item.action === "UPDATE" ? (reconcileResult.summary.updatesApplied > 0 ? "bg-emerald-500 text-slate-950" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30") :
+                            item.action === "RISKY" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse" :
+                            item.action === "AMBIGUOUS" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                            item.action === "CREATE" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
+                            "bg-slate-800/80 text-slate-400"
+                          }`}>
+                            {item.action === "UPDATE" && reconcileResult.summary.updatesApplied > 0 ? "APPLIED" : item.action}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-400 max-w-xs truncate" title={item.reason}>
+                          {item.reason}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
