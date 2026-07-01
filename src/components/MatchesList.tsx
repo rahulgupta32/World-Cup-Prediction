@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Play
 } from "lucide-react";
+import { isTbdTeam } from "@/lib/utils";
 
 interface PredictionData {
   id: string;
@@ -527,16 +528,22 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
 
                     {/* Predict button if upcoming */}
                     {match.status === "UPCOMING" && !isMatchLocked && (
-                      <button
-                        onClick={() => handlePredictClick(match, isMatchLocked)}
-                        className={`px-4 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                          hasPredicted
-                            ? "border border-slate-750 text-slate-300 hover:text-white hover:bg-slate-850"
-                            : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-                        }`}
-                      >
-                        {hasPredicted ? "Edit Prediction" : "Predict"}
-                      </button>
+                      isTbdTeam(match.teamA) || isTbdTeam(match.teamB) ? (
+                        <span className="text-[11px] italic text-slate-500 font-bold bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-850">
+                          Prediction opens when teams are confirmed
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handlePredictClick(match, isMatchLocked)}
+                          className={`px-4 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                            hasPredicted
+                              ? "border border-slate-750 text-slate-300 hover:text-white hover:bg-slate-850"
+                              : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+                          }`}
+                        >
+                          {hasPredicted ? "Edit Prediction" : "Predict"}
+                        </button>
+                      )
                     )}
                   </div>
                 </div>

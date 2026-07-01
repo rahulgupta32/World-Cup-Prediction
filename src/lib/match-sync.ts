@@ -1,5 +1,6 @@
 import { prisma } from "./db";
-import { Outcome, MatchStatus, StreamSourceType } from "@prisma/client";
+import { Outcome, MatchStatus, StreamSourceType, MatchStage } from "@prisma/client";
+import { isTbdTeam } from "./utils";
 import { getResultFromScore, calculateMatchPoints } from "./scoring";
 
 export type NormalizedApiMatch = {
@@ -480,5 +481,243 @@ export async function runMatchSync(selectedProvider = "worldcup26.ir") {
   } catch (error: any) {
     console.error("API sync fatal error:", error);
     return { success: false, error: `Failed to execute sync: ${error.message || error}` };
+  }
+}
+
+function getStageFromApiType(type: string): MatchStage | null {
+  switch (type?.toLowerCase()) {
+    case "r32": return "ROUND_OF_32";
+    case "r16": return "ROUND_OF_16";
+    case "qf": return "QUARTER_FINAL";
+    case "sf": return "SEMI_FINAL";
+    case "third": return "THIRD_PLACE";
+    case "final": return "FINAL";
+    default: return null;
+  }
+}
+
+export async function runKnockoutFixtureSync() {
+  const summary = {
+    totalFetched: 0,
+    matched: 0,
+    updated: 0,
+    skippedAmbiguous: 0,
+    skippedTbd: 0,
+    skippedNoPlaceholder: 0,
+    skippedAlreadyReal: 0,
+    duplicateRisks: 0,
+    errors: [] as string[],
+    skippedDetails: [] as { matchName: string; reason: string }[],
+  };
+
+  try {
+    // Fetch API with 10-second timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    let res;
+    try {
+      res = await fetch("https://worldcup26.ir/get/games", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const errorType = err.name === "AbortError" ? "TimeoutError" : "NetworkError";
+      console.error(`[KNOCKOUT-SYNC] Error: ${errorType}, Message: ${err.message || err}`);
+      if (err.name === "AbortError") {
+        return { success: false, error: "API request timed out (10s limit exceeded)." };
+      }
+      return { success: false, error: `Failed to connect to API: ${err.message || err}` };
+    }
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      return { success: false, error: `API returned error status: ${res.status} ${res.statusText}` };
+    }
+
+    const data = await res.json();
+    if (!data || !Array.isArray(data.games)) {
+      return { success: false, error: "Invalid API response format. Missing games list." };
+    }
+
+    const dbMatches = await prisma.match.findMany({
+      include: {
+        predictions: true,
+      }
+    });
+
+    for (const game of data.games) {
+      try {
+        const apiStage = getStageFromApiType(game.type);
+        if (!apiStage) {
+          // Skip non-knockout / group stage games
+          continue;
+        }
+
+        summary.totalFetched++;
+
+        const normalized = toNormalizedApiMatch(game);
+        const apiMatchName = `${normalized.teamA} vs ${normalized.teamB} (${apiStage})`;
+
+        // 1. Check if teams in API are still placeholders / TBD
+        if (isTbdTeam(normalized.teamA) || isTbdTeam(normalized.teamB)) {
+          summary.skippedTbd++;
+          summary.skippedDetails.push({
+            matchName: apiMatchName,
+            reason: `Teams still TBD in API (Home: ${normalized.teamA || "TBD"}, Away: ${normalized.teamB || "TBD"})`,
+          });
+          continue;
+        }
+
+        // 2. Find placeholder match in DB using ID or heuristic
+        let match = dbMatches.find(
+          m => m.apiProvider === normalized.apiProvider && m.apiMatchId === normalized.apiMatchId
+        );
+
+        let highestScore = 0;
+        let isAmbiguous = false;
+
+        if (!match) {
+          // Run heuristic
+          for (const m of dbMatches) {
+            let score = 0;
+
+            // Stage comparison
+            if (m.stage === apiStage) {
+              score += 10;
+            } else if (m.isKnockout && m.stage !== "GROUP") {
+              score += 5;
+            }
+
+            // Kickoff time comparison
+            if (normalized.kickoffUtc && m.matchTime) {
+              const timeDiff = Math.abs(new Date(m.matchTime).getTime() - normalized.kickoffUtc.getTime());
+              if (timeDiff <= 2 * 60 * 60 * 1000) {
+                score += 10;
+              } else if (timeDiff <= 6 * 60 * 60 * 1000) {
+                score += 5;
+              } else if (timeDiff <= 24 * 60 * 60 * 1000) {
+                score += 2;
+              }
+            }
+
+            // Placeholder matching
+            const hasPlaceholder = isTbdTeam(m.teamA) || isTbdTeam(m.teamB);
+            if (hasPlaceholder) {
+              score += 5;
+            }
+            if (isTbdTeam(m.teamA) && isTbdTeam(m.teamB)) {
+              score += 5;
+            }
+
+            if (score >= 15) {
+              if (score > highestScore) {
+                highestScore = score;
+                match = m;
+                isAmbiguous = false;
+              } else if (score === highestScore) {
+                isAmbiguous = true;
+              }
+            }
+          }
+        }
+
+        if (isAmbiguous) {
+          summary.skippedAmbiguous++;
+          summary.skippedDetails.push({
+            matchName: apiMatchName,
+            reason: "Multiple matching local placeholders found (ambiguous kickoff or stage)",
+          });
+          continue;
+        }
+
+        if (!match) {
+          summary.skippedNoPlaceholder++;
+          summary.skippedDetails.push({
+            matchName: apiMatchName,
+            reason: "No matching placeholder match found in local database",
+          });
+          continue;
+        }
+
+        // Strong apiMatchId safety check: Do not overwrite an existing different apiMatchId
+        if (match.apiMatchId && match.apiMatchId !== normalized.apiMatchId) {
+          summary.skippedAmbiguous++;
+          summary.skippedDetails.push({
+            matchName: apiMatchName,
+            reason: `Conflicting API ID (local: ${match.apiMatchId}, API: ${normalized.apiMatchId})`,
+          });
+          continue;
+        }
+
+        // Check if local match is already resolved with real teams
+        if (!isTbdTeam(match.teamA) && !isTbdTeam(match.teamB)) {
+          // Check if kickoff time needs updating
+          let updatedTimes = false;
+          if (normalized.kickoffUtc) {
+            const apiTime = normalized.kickoffUtc.getTime();
+            const dbTime = new Date(match.matchTime).getTime();
+            if (apiTime !== dbTime) {
+              await prisma.match.update({
+                where: { id: match.id },
+                data: {
+                  matchTime: normalized.kickoffUtc,
+                  predictionDeadline: normalized.kickoffUtc,
+                },
+              });
+              updatedTimes = true;
+            }
+          }
+
+          if (updatedTimes) {
+            summary.updated++;
+          } else {
+            summary.skippedAlreadyReal++;
+          }
+          continue;
+        }
+
+        // Warnings count if existing predictions are present
+        const predictionCount = match.predictions.length;
+        if (predictionCount > 0) {
+          summary.duplicateRisks++;
+        }
+
+        // Replace TBD placeholder with actual team names and save
+        const canonicalA = getCanonicalTeamName(normalized.teamA);
+        const canonicalB = getCanonicalTeamName(normalized.teamB);
+        const teams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+        const dateKey = (normalized.kickoffUtc || new Date(match.matchTime)).toISOString().split("T")[0];
+
+        await prisma.match.update({
+          where: { id: match.id },
+          data: {
+            teamA: canonicalA,
+            teamB: canonicalB,
+            normalizedTeamA: teams[0],
+            normalizedTeamB: teams[1],
+            matchDateKey: dateKey,
+            apiMatchId: normalized.apiMatchId,
+            stage: apiStage,
+            isKnockout: true,
+            matchTime: normalized.kickoffUtc || match.matchTime,
+            predictionDeadline: normalized.kickoffUtc || match.predictionDeadline,
+          },
+        });
+
+        summary.updated++;
+        summary.matched++;
+
+      } catch (err: any) {
+        summary.errors.push(`Error processing game: ${err.message || err}`);
+      }
+    }
+
+    return { success: true, summary };
+
+  } catch (error: any) {
+    console.error("Knockout fixture sync fatal error:", error);
+    return { success: false, error: `Failed to execute knockout fixture sync: ${error.message || error}` };
   }
 }

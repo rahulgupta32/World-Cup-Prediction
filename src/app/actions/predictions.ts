@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { isScoreConsistentWithResult } from "@/lib/scoring";
 import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { Outcome } from "@prisma/client";
+import { isTbdTeam } from "@/lib/utils";
 
 const getCachedRawMatches = unstable_cache(
   async () => {
@@ -93,6 +94,10 @@ export async function submitPrediction(formData: FormData) {
     const now = new Date();
     if (now >= new Date(match.predictionDeadline)) {
       return { success: false, error: "Predictions are locked for this match." };
+    }
+
+    if (isTbdTeam(match.teamA) || isTbdTeam(match.teamB)) {
+      return { success: false, error: "Predictions are locked until teams are confirmed." };
     }
 
     // 2. Save prediction (idempotent upsert) using derived session userId

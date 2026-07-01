@@ -5,7 +5,7 @@ import { verifyAdminAction } from "@/lib/auth";
 import { getResultFromScore, calculateMatchPoints, recalculateAllPoints } from "@/lib/scoring";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { Outcome, MatchStatus, StreamSourceType } from "@prisma/client";
-import { runMatchSync } from "@/lib/match-sync";
+import { runMatchSync, runKnockoutFixtureSync } from "@/lib/match-sync";
 
 function isValidHttpUrl(stringStr: string | null | undefined): boolean {
   if (!stringStr) return true;
@@ -613,6 +613,34 @@ export async function syncMatchesWithApi(providerName?: string) {
     return res;
   } catch (error: any) {
     console.error("API sync fatal error:", error);
+    return { success: false, error: `Failed to execute sync: ${error.message || error}` };
+  }
+}
+
+export async function syncKnockoutFixturesWithApi() {
+  const { authenticated } = await verifyAdminAction();
+  if (!authenticated) {
+    return { success: false, error: "Unauthorized. Admin privileges required." };
+  }
+
+  try {
+    const res = await runKnockoutFixtureSync();
+
+    try {
+      revalidatePath("/dashboard");
+      revalidatePath("/matches");
+      revalidatePath("/admin");
+      revalidatePath("/leaderboard");
+      revalidatePath("/my-predictions");
+      (revalidateTag as any)("leaderboard");
+      (revalidateTag as any)("raw-matches");
+    } catch (e) {
+      // Ignore cache clear error
+    }
+
+    return res;
+  } catch (error: any) {
+    console.error("Knockout fixture sync fatal error:", error);
     return { success: false, error: `Failed to execute sync: ${error.message || error}` };
   }
 }

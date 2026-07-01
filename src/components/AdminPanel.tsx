@@ -7,7 +7,8 @@ import {
   deleteMatch, 
   submitMatchResult, 
   triggerRecalculate,
-  syncMatchesWithApi
+  syncMatchesWithApi,
+  syncKnockoutFixturesWithApi
 } from "@/app/actions/admin";
 import { 
   Settings, 
@@ -79,6 +80,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [resultMatchId, setResultMatchId] = useState<string | null>(null);
   const [syncSummary, setSyncSummary] = useState<any | null>(null);
+  const [knockoutSummary, setKnockoutSummary] = useState<any | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncPending, startSyncTransition] = useTransition();
   const [expandedPredictionsMatchId, setExpandedPredictionsMatchId] = useState<string | null>(null);
@@ -279,6 +281,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setActionSuccess(null);
     setSyncError(null);
     setSyncSummary(null);
+    setKnockoutSummary(null);
 
     startTransition(async () => {
       const res = await triggerRecalculate();
@@ -295,6 +298,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setActionSuccess(null);
     setSyncError(null);
     setSyncSummary(null);
+    setKnockoutSummary(null);
 
     startSyncTransition(async () => {
       try {
@@ -304,6 +308,28 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
           setSyncSummary(res.summary);
         } else {
           setSyncError(res.error || "Failed to synchronize matches with API.");
+        }
+      } catch (err: any) {
+        setSyncError("An unexpected error occurred while running the sync. Please try again.");
+      }
+    });
+  };
+
+  const handleKnockoutSync = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+    setSyncError(null);
+    setSyncSummary(null);
+    setKnockoutSummary(null);
+
+    startSyncTransition(async () => {
+      try {
+        const res = await syncKnockoutFixturesWithApi();
+        if (res.success) {
+          setActionSuccess("Knockout fixtures synchronized successfully!");
+          setKnockoutSummary(res.summary);
+        } else {
+          setSyncError(res.error || "Failed to synchronize knockout fixtures.");
         }
       } catch (err: any) {
         setSyncError("An unexpected error occurred while running the sync. Please try again.");
@@ -1122,8 +1148,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
 
       {/* TAB: System Actions */}
       {activeTab === "system" && (
-        <div className="space-y-6 max-w-3xl">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-6 max-w-4xl">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
             {/* Card 1: API Synchronization */}
             <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
@@ -1163,7 +1189,30 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
               </div>
             </div>
 
-            {/* Card 2: Points Recalculation */}
+            {/* Card 2: Update Knockout Fixtures */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <Settings className="h-5 w-5" />
+                  <h3 className="text-md font-bold text-slate-200">Knockout Placeholder Sync</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Fetches qualified teams for knockout stage placeholder matches (TBD) and replaces placeholders with actual qualified teams.
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={handleKnockoutSync}
+                  disabled={isSyncPending || isActionPending}
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                >
+                  <Settings className={`h-4 w-4 ${isSyncPending ? "animate-pulse" : ""}`} />
+                  <span>{isSyncPending ? "Updating placeholders..." : "Update Knockout Fixtures"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 3: Points Recalculation */}
             <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-center space-x-2 text-emerald-400">
@@ -1254,6 +1303,80 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Knockout Sync Results Display */}
+          {knockoutSummary && (
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider border-b border-slate-850 pb-2">
+                Knockout Fixture Sync Report
+              </h3>
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Total Fetched</span>
+                    <span className="text-lg font-black text-slate-100">{knockoutSummary.totalFetched}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Matched</span>
+                    <span className="text-lg font-black text-emerald-450">{knockoutSummary.matched}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Updated</span>
+                    <span className="text-lg font-black text-emerald-450">{knockoutSummary.updated}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Skipped TBD</span>
+                    <span className="text-lg font-black text-slate-400">{knockoutSummary.skippedTbd}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Ambiguous Skipped</span>
+                    <span className="text-lg font-black text-amber-500">{knockoutSummary.skippedAmbiguous}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Already Confirmed</span>
+                    <span className="text-lg font-black text-slate-400">{knockoutSummary.skippedAlreadyReal}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">No Placeholder</span>
+                    <span className="text-lg font-black text-amber-500">{knockoutSummary.skippedNoPlaceholder}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Prediction Warnings</span>
+                    <span className={`text-lg font-black ${knockoutSummary.duplicateRisks > 0 ? "text-amber-500 font-black animate-pulse" : "text-slate-400"}`}>{knockoutSummary.duplicateRisks}</span>
+                  </div>
+                </div>
+
+                {knockoutSummary.skippedDetails && knockoutSummary.skippedDetails.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Fixture Processing Details</span>
+                    <div className="p-3.5 bg-slate-950 border border-slate-850 rounded-xl space-y-1 max-h-40 overflow-y-auto">
+                      {knockoutSummary.skippedDetails.map((item: any, idx: number) => (
+                        <div key={idx} className="text-[11px] text-slate-450 flex justify-between py-0.5 border-b border-slate-900 last:border-0">
+                          <span className="font-semibold text-slate-300">{item.matchName}</span>
+                          <span className="text-amber-500 text-[10px] font-bold">{item.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {knockoutSummary.errors && knockoutSummary.errors.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Processing Errors</span>
+                    <div className="p-3.5 bg-red-500/5 border border-red-500/10 rounded-xl space-y-1 max-h-40 overflow-y-auto">
+                      {knockoutSummary.errors.map((err: string, idx: number) => (
+                        <div key={idx} className="text-[11px] text-red-400 flex items-start space-x-1">
+                          <span className="text-red-500 font-bold mr-1">•</span>
+                          <span>{err}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
