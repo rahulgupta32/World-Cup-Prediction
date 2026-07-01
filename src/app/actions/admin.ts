@@ -285,12 +285,19 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
   const decidedBy = formData.get("decidedBy")?.toString() as any;
   const winnerTeam = formData.get("winnerTeam")?.toString().trim() || null;
 
+  // Penalty results fields
+  const penaltyScoreAString = formData.get("penaltyScoreA")?.toString();
+  const penaltyScoreBString = formData.get("penaltyScoreB")?.toString();
+
   if (!status) {
     return { success: false, error: "Status is required." };
   }
 
   const scoreA = scoreAString && scoreAString.trim() !== "" ? parseInt(scoreAString) : null;
   const scoreB = scoreBString && scoreBString.trim() !== "" ? parseInt(scoreBString) : null;
+
+  const penaltyScoreA = penaltyScoreAString && penaltyScoreAString.trim() !== "" ? parseInt(penaltyScoreAString) : null;
+  const penaltyScoreB = penaltyScoreBString && penaltyScoreBString.trim() !== "" ? parseInt(penaltyScoreBString) : null;
 
   // COMPLETED requires scores
   if (status === MatchStatus.COMPLETED && (scoreA === null || scoreB === null)) {
@@ -319,6 +326,29 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
       return { success: false, error: `Winner team must be either "${match.teamA}" or "${match.teamB}".` };
     }
 
+    // Validate penalty shootout results
+    if (status === MatchStatus.COMPLETED && isKnockout && decidedBy === "PENALTIES") {
+      if (scoreA !== scoreB) {
+        return { success: false, error: "A match decided by penalties must end as a Draw before penalties." };
+      }
+      if (penaltyScoreA === null || penaltyScoreB === null) {
+        return { success: false, error: "Penalty shootout scores are required when decided by penalties." };
+      }
+      if (isNaN(penaltyScoreA) || isNaN(penaltyScoreB) || penaltyScoreA < 0 || penaltyScoreB < 0) {
+        return { success: false, error: "Penalty shootout scores must be non-negative integers." };
+      }
+      if (penaltyScoreA === penaltyScoreB) {
+        return { success: false, error: "Penalty shootout scores cannot be equal." };
+      }
+      if (!winnerTeam) {
+        return { success: false, error: "Winner team is required for a penalty shootout." };
+      }
+      const expectedWinner = penaltyScoreA > penaltyScoreB ? match.teamA : match.teamB;
+      if (winnerTeam !== expectedWinner) {
+        return { success: false, error: `Winner team must match the higher penalty shootout score (expected "${expectedWinner}").` };
+      }
+    }
+
     let result = (scoreA !== null && scoreB !== null) ? getResultFromScore(scoreA, scoreB) : null;
     if (isKnockout && winnerTeam) {
       if (winnerTeam === match.teamA) {
@@ -340,6 +370,8 @@ export async function submitMatchResult(matchId: string, formData: FormData) {
         isKnockout: isKnockout,
         decidedBy: decidedBy || undefined,
         winnerTeam: winnerTeam,
+        penaltyTeamAScore: isKnockout && decidedBy === "PENALTIES" ? penaltyScoreA : null,
+        penaltyTeamBScore: isKnockout && decidedBy === "PENALTIES" ? penaltyScoreB : null,
       },
     });
 
@@ -645,7 +677,7 @@ export async function syncKnockoutFixturesWithApi() {
   }
 }
 
-export async function reconcileFixtures(apply: boolean) {
+export async function reconcileFixtures(provider: string, apply: boolean) {
   const { authenticated } = await verifyAdminAction();
   if (!authenticated) {
     return { success: false, error: "Unauthorized. Admin privileges required." };
@@ -653,7 +685,7 @@ export async function reconcileFixtures(apply: boolean) {
 
   try {
     const { auditAndReconcileFixtures } = require("@/lib/match-reconcile");
-    const res = await auditAndReconcileFixtures(apply);
+    const res = await auditAndReconcileFixtures(provider, apply);
 
     if (apply && res.success) {
       try {

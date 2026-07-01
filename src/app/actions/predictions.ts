@@ -44,12 +44,21 @@ export async function submitPrediction(formData: FormData) {
   const scoreAString = formData.get("scoreA")?.toString();
   const scoreBString = formData.get("scoreB")?.toString();
 
+  // Penalty predictions fields
+  const predictsPenalties = formData.get("predictsPenalties") === "true";
+  const predictedPenaltyWinner = formData.get("predictedPenaltyWinner")?.toString();
+  const penaltyScoreAString = formData.get("penaltyScoreA")?.toString();
+  const penaltyScoreBString = formData.get("penaltyScoreB")?.toString();
+
   if (!matchId || !predictedResultInput) {
     return { success: false, error: "Invalid prediction data." };
   }
 
   const scoreA = scoreAString && scoreAString.trim() !== "" ? parseInt(scoreAString) : null;
   const scoreB = scoreBString && scoreBString.trim() !== "" ? parseInt(scoreBString) : null;
+
+  const penaltyScoreA = penaltyScoreAString && penaltyScoreAString.trim() !== "" ? parseInt(penaltyScoreAString) : null;
+  const penaltyScoreB = penaltyScoreBString && penaltyScoreBString.trim() !== "" ? parseInt(penaltyScoreBString) : null;
 
   // Validate scores if provided
   if ((scoreA !== null && scoreB === null) || (scoreA === null && scoreB !== null)) {
@@ -100,7 +109,36 @@ export async function submitPrediction(formData: FormData) {
       return { success: false, error: "Predictions are locked until teams are confirmed." };
     }
 
+    // Validate shootout fields if predicting penalties
+    if (predictsPenalties) {
+      if (!match.isKnockout) {
+        return { success: false, error: "Penalty shootouts are only available for knockout matches." };
+      }
+      if (predictedResultInput !== Outcome.DRAW) {
+        return { success: false, error: "A match going to penalties must be predicted as a Draw before penalties." };
+      }
+      if (!predictedPenaltyWinner || (predictedPenaltyWinner !== "TEAM_A" && predictedPenaltyWinner !== "TEAM_B")) {
+        return { success: false, error: "Please select a penalty shootout winner." };
+      }
+      if ((penaltyScoreA !== null && penaltyScoreB === null) || (penaltyScoreA === null && penaltyScoreB !== null)) {
+        return { success: false, error: "Please provide both penalty scores or leave both empty." };
+      }
+      if (penaltyScoreA !== null && penaltyScoreB !== null) {
+        if (isNaN(penaltyScoreA) || isNaN(penaltyScoreB) || penaltyScoreA < 0 || penaltyScoreB < 0) {
+          return { success: false, error: "Penalty scores must be non-negative integers." };
+        }
+        if (penaltyScoreA === penaltyScoreB) {
+          return { success: false, error: "Penalty shootout scores cannot be equal." };
+        }
+        const higherScoreSide = penaltyScoreA > penaltyScoreB ? "TEAM_A" : "TEAM_B";
+        if (predictedPenaltyWinner !== higherScoreSide) {
+          return { success: false, error: "Penalty winner must match the higher predicted penalty score." };
+        }
+      }
+    }
+
     // 2. Save prediction (idempotent upsert) using derived session userId
+    const isWriteKnockout = match.isKnockout;
     await prisma.prediction.upsert({
       where: {
         userId_matchId: {
@@ -112,6 +150,10 @@ export async function submitPrediction(formData: FormData) {
         predictedResult: predictedResultInput,
         predictedTeamAScore: scoreA,
         predictedTeamBScore: scoreB,
+        predictsPenalties: isWriteKnockout ? predictsPenalties : false,
+        predictedPenaltyTeamAScore: isWriteKnockout && predictsPenalties ? penaltyScoreA : null,
+        predictedPenaltyTeamBScore: isWriteKnockout && predictsPenalties ? penaltyScoreB : null,
+        predictedPenaltyWinner: isWriteKnockout && predictsPenalties ? predictedPenaltyWinner : null,
         updatedAt: new Date(),
       },
       create: {
@@ -120,6 +162,10 @@ export async function submitPrediction(formData: FormData) {
         predictedResult: predictedResultInput,
         predictedTeamAScore: scoreA,
         predictedTeamBScore: scoreB,
+        predictsPenalties: isWriteKnockout ? predictsPenalties : false,
+        predictedPenaltyTeamAScore: isWriteKnockout && predictsPenalties ? penaltyScoreA : null,
+        predictedPenaltyTeamBScore: isWriteKnockout && predictsPenalties ? penaltyScoreB : null,
+        predictedPenaltyWinner: isWriteKnockout && predictsPenalties ? predictedPenaltyWinner : null,
       },
     });
 

@@ -75,6 +75,7 @@ async function getLeaderboardUncached(): Promise<LeaderboardEntry[]> {
       wrongPredictions: number;
       submittedCount: number;
       submittedCompletedCount: number;
+      successfulCompletedCount: number;
     }
   >();
 
@@ -87,6 +88,7 @@ async function getLeaderboardUncached(): Promise<LeaderboardEntry[]> {
       wrongPredictions: 0,
       submittedCount: 0,
       submittedCompletedCount: 0,
+      successfulCompletedCount: 0,
     });
   }
 
@@ -100,6 +102,9 @@ async function getLeaderboardUncached(): Promise<LeaderboardEntry[]> {
 
     if (p.match.status === "COMPLETED") {
       stats.submittedCompletedCount += 1;
+      if (p.pointsAwarded > 0) {
+        stats.successfulCompletedCount += 1;
+      }
     }
 
     if (p.predictionResult === "EXACT_SCORE") {
@@ -120,14 +125,12 @@ async function getLeaderboardUncached(): Promise<LeaderboardEntry[]> {
       wrongPredictions: 0,
       submittedCount: 0,
       submittedCompletedCount: 0,
+      successfulCompletedCount: 0,
     };
     
     const missedCompleted = completedMatchesCount - stats.submittedCompletedCount;
-    // Calculate total points explicitly using: exact * 5 + correct * 3
-    const adjustedPoints = stats.exactScoreCount * 5 + stats.correctOutcomeCount * 3;
-    
-    const totalCorrect = stats.exactScoreCount + stats.correctOutcomeCount;
-    const accuracy = stats.submittedCompletedCount > 0 ? (totalCorrect / stats.submittedCompletedCount) * 100 : 0;
+    const adjustedPoints = stats.totalPoints;
+    const accuracy = stats.submittedCompletedCount > 0 ? (stats.successfulCompletedCount / stats.submittedCompletedCount) * 100 : 0;
 
     return {
       rank: 0, // Assigned after sorting

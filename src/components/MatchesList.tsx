@@ -26,6 +26,10 @@ interface PredictionData {
   predictedTeamBScore: number | null;
   pointsAwarded: number;
   predictionResult: "EXACT_SCORE" | "CORRECT_OUTCOME" | "WRONG" | "VOID" | null;
+  predictsPenalties?: boolean;
+  predictedPenaltyTeamAScore?: number | null;
+  predictedPenaltyTeamBScore?: number | null;
+  predictedPenaltyWinner?: string | null;
   user: {
     name: string;
   };
@@ -53,6 +57,11 @@ interface MatchData {
   coverageNote?: string | null;
   streamSourceType?: "OFFICIAL" | "BROADCASTER" | "FIFA" | "ADMIN_LINK" | "NONE" | null;
   lastSyncedAt?: string | null;
+  isKnockout?: boolean;
+  decidedBy?: string;
+  winnerTeam?: string | null;
+  penaltyTeamAScore?: number | null;
+  penaltyTeamBScore?: number | null;
 }
 
 interface MatchesListProps {
@@ -80,6 +89,10 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
   const [predictedResult, setPredictedResult] = useState<"TEAM_A" | "DRAW" | "TEAM_B" | "">("");
   const [scoreA, setScoreA] = useState<string>("");
   const [scoreB, setScoreB] = useState<string>("");
+  const [predictsPenalties, setPredictsPenalties] = useState<boolean>(false);
+  const [penaltyScoreA, setPenaltyScoreA] = useState<string>("");
+  const [penaltyScoreB, setPenaltyScoreB] = useState<string>("");
+  const [predictedPenaltyWinner, setPredictedPenaltyWinner] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   
@@ -116,6 +129,10 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
             setPredictedResult(match.userPrediction.predictedResult);
             setScoreA(match.userPrediction.predictedTeamAScore?.toString() || "");
             setScoreB(match.userPrediction.predictedTeamBScore?.toString() || "");
+            setPredictsPenalties(match.userPrediction.predictsPenalties || false);
+            setPenaltyScoreA(match.userPrediction.predictedPenaltyTeamAScore?.toString() || "");
+            setPenaltyScoreB(match.userPrediction.predictedPenaltyTeamBScore?.toString() || "");
+            setPredictedPenaltyWinner(match.userPrediction.predictedPenaltyWinner || "");
           }
         }
       }
@@ -144,10 +161,18 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
         setPredictedResult(match.userPrediction.predictedResult);
         setScoreA(match.userPrediction.predictedTeamAScore?.toString() || "");
         setScoreB(match.userPrediction.predictedTeamBScore?.toString() || "");
+        setPredictsPenalties(match.userPrediction.predictsPenalties || false);
+        setPenaltyScoreA(match.userPrediction.predictedPenaltyTeamAScore?.toString() || "");
+        setPenaltyScoreB(match.userPrediction.predictedPenaltyTeamBScore?.toString() || "");
+        setPredictedPenaltyWinner(match.userPrediction.predictedPenaltyWinner || "");
       } else {
         setPredictedResult("");
         setScoreA("");
         setScoreB("");
+        setPredictsPenalties(false);
+        setPenaltyScoreA("");
+        setPenaltyScoreB("");
+        setPredictedPenaltyWinner("");
       }
     }
   };
@@ -159,18 +184,30 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
       const numA = parseInt(val);
       const numB = parseInt(scoreB);
       if (!isNaN(numA) && !isNaN(numB)) {
-        if (numA > numB) setPredictedResult("TEAM_A");
-        else if (numA < numB) setPredictedResult("TEAM_B");
-        else setPredictedResult("DRAW");
+        if (numA > numB) {
+          setPredictedResult("TEAM_A");
+          setPredictsPenalties(false);
+        } else if (numA < numB) {
+          setPredictedResult("TEAM_B");
+          setPredictsPenalties(false);
+        } else {
+          setPredictedResult("DRAW");
+        }
       }
     } else {
       setScoreB(val);
       const numA = parseInt(scoreA);
       const numB = parseInt(val);
       if (!isNaN(numA) && !isNaN(numB)) {
-        if (numA > numB) setPredictedResult("TEAM_A");
-        else if (numA < numB) setPredictedResult("TEAM_B");
-        else setPredictedResult("DRAW");
+        if (numA > numB) {
+          setPredictedResult("TEAM_A");
+          setPredictsPenalties(false);
+        } else if (numA < numB) {
+          setPredictedResult("TEAM_B");
+          setPredictsPenalties(false);
+        } else {
+          setPredictedResult("DRAW");
+        }
       }
     }
   };
@@ -178,6 +215,9 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
   const handleResultSelect = (res: "TEAM_A" | "DRAW" | "TEAM_B") => {
     setError(null);
     setPredictedResult(res);
+    if (res !== "DRAW") {
+      setPredictsPenalties(false);
+    }
     const numA = parseInt(scoreA);
     const numB = parseInt(scoreB);
     if (!isNaN(numA) && !isNaN(numB)) {
@@ -206,6 +246,10 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
     formData.append("predictedResult", predictedResult);
     formData.append("scoreA", scoreA);
     formData.append("scoreB", scoreB);
+    formData.append("predictsPenalties", predictsPenalties ? "true" : "false");
+    formData.append("predictedPenaltyWinner", predictedPenaltyWinner);
+    formData.append("penaltyScoreA", penaltyScoreA);
+    formData.append("penaltyScoreB", penaltyScoreB);
 
     startTransition(async () => {
       const res = await submitPrediction(formData);
@@ -609,7 +653,9 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            2. Predict Exact Score (Optional for +2 Bonus)
+                            {match.isKnockout 
+                              ? "2. Score after normal/extra time, before penalties if penalties happen"
+                              : "2. Predict Exact Score (Optional for +2 Bonus)"}
                           </span>
                           <span className="text-[10px] text-slate-500">
                             Leave both empty for outcome-only prediction
@@ -643,6 +689,98 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
                           </div>
                         </div>
                       </div>
+
+                      {/* Step 3: Penalty Shootout (Knockout only) */}
+                      {match.isKnockout && (
+                        <div className="space-y-3 border-t border-slate-850 pt-4">
+                          <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={predictsPenalties}
+                              onChange={(e) => {
+                                setPredictsPenalties(e.target.checked);
+                                if (e.target.checked) {
+                                  setPredictedResult("DRAW");
+                                  if (scoreA !== scoreB) {
+                                    setScoreB(scoreA || "0");
+                                    setScoreA(scoreA || "0");
+                                  }
+                                }
+                              }}
+                              className="h-4 w-4 rounded border-slate-800 bg-slate-950 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 focus:outline-none"
+                            />
+                            <span className="text-xs font-bold text-slate-350">
+                              I think this match will go to penalties
+                            </span>
+                          </label>
+
+                          {predictsPenalties && (
+                            <div className="bg-slate-950/60 border border-slate-850 p-4 rounded-2xl space-y-4">
+                              <div>
+                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">
+                                  Penalty Shootout Score (Optional)
+                                </span>
+                                <div className="flex items-center justify-center space-x-3 max-w-xs mx-auto">
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-[9px] text-slate-400 mb-1 font-semibold truncate max-w-[80px]">{match.teamA}</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="20"
+                                      value={penaltyScoreA}
+                                      onChange={(e) => {
+                                        setPenaltyScoreA(e.target.value);
+                                        const pA = parseInt(e.target.value);
+                                        const pB = parseInt(penaltyScoreB);
+                                        if (!isNaN(pA) && !isNaN(pB) && pA !== pB) {
+                                          setPredictedPenaltyWinner(pA > pB ? "TEAM_A" : "TEAM_B");
+                                        }
+                                      }}
+                                      className="w-14 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                                      placeholder="0"
+                                    />
+                                  </div>
+                                  <span className="font-extrabold text-slate-600 mt-4">-</span>
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-[9px] text-slate-400 mb-1 font-semibold truncate max-w-[80px]">{match.teamB}</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="20"
+                                      value={penaltyScoreB}
+                                      onChange={(e) => {
+                                        setPenaltyScoreB(e.target.value);
+                                        const pA = parseInt(penaltyScoreA);
+                                        const pB = parseInt(e.target.value);
+                                        if (!isNaN(pA) && !isNaN(pB) && pA !== pB) {
+                                          setPredictedPenaltyWinner(pA > pB ? "TEAM_A" : "TEAM_B");
+                                        }
+                                      }}
+                                      className="w-14 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                                      placeholder="0"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">
+                                  Shootout Winner (Required)
+                                </label>
+                                <select
+                                  value={predictedPenaltyWinner}
+                                  onChange={(e) => setPredictedPenaltyWinner(e.target.value)}
+                                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 outline-none focus:border-emerald-500"
+                                >
+                                  <option value="">-- Select Winner --</option>
+                                  <option value="TEAM_A">{match.teamA}</option>
+                                  <option value="TEAM_B">{match.teamB}</option>
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Buttons */}
                       <div className="flex justify-end space-x-3 pt-2">

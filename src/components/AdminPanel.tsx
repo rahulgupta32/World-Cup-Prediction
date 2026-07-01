@@ -68,6 +68,8 @@ interface MatchData {
   isKnockout?: boolean;
   decidedBy?: "NORMAL_TIME" | "EXTRA_TIME" | "PENALTIES" | "CANCELLED" | "VOID";
   winnerTeam?: string | null;
+  penaltyTeamAScore?: number | null;
+  penaltyTeamBScore?: number | null;
 }
 
 interface AdminPanelProps {
@@ -83,6 +85,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [syncSummary, setSyncSummary] = useState<any | null>(null);
   const [knockoutSummary, setKnockoutSummary] = useState<any | null>(null);
   const [reconcileResult, setReconcileResult] = useState<any | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string>("worldcup");
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncPending, startSyncTransition] = useTransition();
   const [expandedPredictionsMatchId, setExpandedPredictionsMatchId] = useState<string | null>(null);
@@ -124,6 +127,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
   const [resultIsKnockout, setResultIsKnockout] = useState<boolean>(false);
   const [resultDecidedBy, setResultDecidedBy] = useState<string>("NORMAL_TIME");
   const [resultWinnerTeam, setResultWinnerTeam] = useState<string>("");
+  const [resultPenaltyScoreA, setResultPenaltyScoreA] = useState("");
+  const [resultPenaltyScoreB, setResultPenaltyScoreB] = useState("");
 
   const handleEditClick = (match: MatchData) => {
     setActionError(null);
@@ -176,6 +181,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     setResultIsKnockout(match.isKnockout || false);
     setResultDecidedBy(match.decidedBy || "NORMAL_TIME");
     setResultWinnerTeam(match.winnerTeam || "");
+    setResultPenaltyScoreA(match.penaltyTeamAScore !== null && match.penaltyTeamAScore !== undefined ? match.penaltyTeamAScore.toString() : "");
+    setResultPenaltyScoreB(match.penaltyTeamBScore !== null && match.penaltyTeamBScore !== undefined ? match.penaltyTeamBScore.toString() : "");
   };
 
   const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>, matchId: string) => {
@@ -250,6 +257,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     formData.append("isKnockout", resultIsKnockout ? "true" : "false");
     formData.append("decidedBy", resultDecidedBy);
     formData.append("winnerTeam", resultWinnerTeam);
+    formData.append("penaltyScoreA", resultPenaltyScoreA);
+    formData.append("penaltyScoreB", resultPenaltyScoreB);
 
     startTransition(async () => {
       const res = await submitMatchResult(matchId, formData);
@@ -342,7 +351,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     });
   };
 
-  const handleReconcile = async (apply: boolean) => {
+  const handleReconcile = async (provider: string, apply: boolean) => {
     setActionError(null);
     setActionSuccess(null);
     setSyncError(null);
@@ -352,7 +361,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
 
     startSyncTransition(async () => {
       try {
-        const res = await reconcileFixtures(apply);
+        const res = await reconcileFixtures(provider, apply);
         if (res.success) {
           setActionSuccess(apply ? "Safe fixture updates applied successfully!" : "Fixture audit completed! Review the comparison below.");
           setReconcileResult(res);
@@ -1073,6 +1082,53 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                           </div>
                         </div>
 
+                        {resultIsKnockout && resultDecidedBy === "PENALTIES" && (
+                          <div className="bg-slate-950 p-4 border border-slate-850 rounded-2xl max-w-sm mx-auto space-y-3">
+                            <h5 className="text-[10px] font-bold text-slate-450 uppercase tracking-wider text-center">
+                              Penalty Shootout Result
+                            </h5>
+                            <div className="flex items-center space-x-4 justify-center">
+                              <div className="flex flex-col items-center">
+                                <span className="text-[10px] text-slate-450 mb-1 font-bold">{match.teamA} Penalties</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={resultPenaltyScoreA}
+                                  onChange={(e) => {
+                                    setResultPenaltyScoreA(e.target.value);
+                                    const pA = parseInt(e.target.value);
+                                    const pB = parseInt(resultPenaltyScoreB);
+                                    if (!isNaN(pA) && !isNaN(pB) && pA !== pB) {
+                                      setResultWinnerTeam(pA > pB ? match.teamA : match.teamB);
+                                    }
+                                  }}
+                                  required={resultStatus === "COMPLETED"}
+                                  className="w-14 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 text-center font-bold text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <span className="font-extrabold text-slate-600 mt-5">-</span>
+                              <div className="flex flex-col items-center">
+                                <span className="text-[10px] text-slate-450 mb-1 font-bold">{match.teamB} Penalties</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={resultPenaltyScoreB}
+                                  onChange={(e) => {
+                                    setResultPenaltyScoreB(e.target.value);
+                                    const pA = parseInt(resultPenaltyScoreA);
+                                    const pB = parseInt(e.target.value);
+                                    if (!isNaN(pA) && !isNaN(pB) && pA !== pB) {
+                                      setResultWinnerTeam(pA > pB ? match.teamA : match.teamB);
+                                    }
+                                  }}
+                                  required={resultStatus === "COMPLETED"}
+                                  className="w-14 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 text-center font-bold text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex justify-end space-x-2 pt-2">
                           <button
                             type="button"
@@ -1251,22 +1307,60 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   Audit and update matches by comparing with the provider database. Safely handles TBDs, placeholders, and schedule changes.
                 </p>
               </div>
-              <div className="pt-2 flex flex-col space-y-2">
+              <div className="pt-2 flex flex-col space-y-2.5">
+                {/* Provider Selector */}
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-slate-500 block">Select Provider</label>
+                  <select
+                    value={selectedProvider}
+                    onChange={(e) => setSelectedProvider(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-200 outline-none focus:border-emerald-500"
+                  >
+                    <option value="worldcup">Current Provider (worldcup26.ir)</option>
+                    <option value="apifootball">API-Football</option>
+                    <option value="thestatsapi">TheStatsAPI</option>
+                    <option value="kickoffapi">KickoffAPI</option>
+                    <option value="all">All Providers (Audit Mode)</option>
+                  </select>
+                </div>
+
+                {/* Audit Buttons Row */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => handleReconcile(selectedProvider, false)}
+                    disabled={isSyncPending || isActionPending}
+                    className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
+                    title="Fetch raw provider fixtures"
+                  >
+                    <span>Fetch Fixtures</span>
+                  </button>
+                  <button
+                    onClick={() => handleReconcile(selectedProvider, false)}
+                    disabled={isSyncPending || isActionPending}
+                    className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
+                    title="Run difference audit"
+                  >
+                    <span>Run Audit</span>
+                  </button>
+                  <button
+                    onClick={() => handleReconcile(selectedProvider, false)}
+                    disabled={isSyncPending || isActionPending}
+                    className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
+                    title="Run fixture reconciliation"
+                  >
+                    <span>Reconcile</span>
+                  </button>
+                </div>
+
+                {/* Apply Button */}
                 <button
-                  onClick={() => handleReconcile(false)}
+                  onClick={() => handleReconcile(selectedProvider, true)}
                   disabled={isSyncPending || isActionPending}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
-                >
-                  <Activity className={`h-4 w-4 ${isSyncPending ? "animate-pulse" : ""}`} />
-                  <span>Run Fixture Audit (Dry-Run)</span>
-                </button>
-                <button
-                  onClick={() => handleReconcile(true)}
-                  disabled={isSyncPending || isActionPending}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                  className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 font-bold text-xs cursor-pointer transition-all active:scale-95 w-full justify-center"
+                  title="Apply safe fixture updates"
                 >
                   <CheckSquare className="h-4 w-4" />
-                  <span>Apply Safe Fixture Updates</span>
+                  <span>Apply Safe Updates</span>
                 </button>
               </div>
             </div>
@@ -1446,7 +1540,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 Fixture Reconciliation Report ({reconcileResult.summary.updatesApplied} Applied / {reconcileResult.summary.safeUpdatesIdentified} Safe Updates Identified)
               </h3>
               
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pb-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pb-2">
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
                   <span className="text-[10px] text-slate-500 font-bold uppercase">Scanned (Local)</span>
                   <span className="text-lg font-black text-slate-100">{reconcileResult.summary.totalLocalScanned}</span>
@@ -1458,6 +1552,12 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
                   <span className="text-[10px] text-slate-500 font-bold uppercase">Safe Updates</span>
                   <span className="text-lg font-black text-emerald-450">{reconcileResult.summary.safeUpdatesIdentified}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Conflicts</span>
+                  <span className={`text-lg font-black ${reconcileResult.summary.providerConflicts > 0 ? "text-red-400 font-black animate-pulse" : "text-slate-450"}`}>
+                    {reconcileResult.summary.providerConflicts}
+                  </span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
                   <span className="text-[10px] text-slate-500 font-bold uppercase">Ambiguous Skipped</span>
@@ -1477,6 +1577,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                       <th className="py-2.5 px-3">API Match</th>
                       <th className="py-2.5 px-3">Current Kickoff</th>
                       <th className="py-2.5 px-3">Proposed Kickoff</th>
+                      <th className="py-2.5 px-3">Provider</th>
                       <th className="py-2.5 px-3 text-center">Confidence</th>
                       <th className="py-2.5 px-3 text-center">Action/Status</th>
                       <th className="py-2.5 px-3">Reason</th>
@@ -1502,6 +1603,9 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                         <td className="py-2 px-3 font-mono text-slate-350">
                           {item.proposedKickoff ? new Date(item.proposedKickoff).toLocaleString() : "—"}
                         </td>
+                        <td className="py-2 px-3 text-slate-400 capitalize font-semibold">
+                          {item.provider}
+                        </td>
                         <td className="py-2 px-3 text-center">
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
                             item.confidence === "None" ? "bg-slate-800 text-slate-400" : "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20"
@@ -1513,7 +1617,8 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                           <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
                             item.action === "UPDATE" ? (reconcileResult.summary.updatesApplied > 0 ? "bg-emerald-500 text-slate-950" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30") :
                             item.action === "RISKY" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse" :
-                            item.action === "AMBIGUOUS" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                            item.action === "PROVIDER_CONFLICT" ? "bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse" :
+                            item.action === "AMBIGUOUS" ? "bg-amber-500/20 text-amber-405 border border-amber-500/30" :
                             item.action === "CREATE" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
                             "bg-slate-800/80 text-slate-400"
                           }`}>

@@ -112,6 +112,8 @@ model Match {
   isKnockout             Boolean           @default(false)
   decidedBy              DecidedBy         @default(NORMAL_TIME)
   winnerTeam             String?
+  penaltyTeamAScore      Int?
+  penaltyTeamBScore      Int?
 
   @@index([status])
   @@index([matchTime])
@@ -129,6 +131,10 @@ model Prediction {
   pointsAwarded       Int               @default(0)
   predictionResult    PredictionResult?
   isCalculated        Boolean           @default(false)
+  predictsPenalties   Boolean           @default(false)
+  predictedPenaltyTeamAScore Int?
+  predictedPenaltyTeamBScore Int?
+  predictedPenaltyWinner     String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
