@@ -94,6 +94,54 @@ export default async function MatchesPage({ searchParams }: PageProps) {
     };
   });
 
+  // 3. Apply stable, sequence-based ordering to the matches
+  formattedMatches.sort((a, b) => {
+    const getStatusWeight = (status: string) => {
+      switch (status) {
+        case "LIVE":
+        case "IN_PROGRESS":
+          return 1;
+        case "UPCOMING":
+        case "SCHEDULED":
+        case "POSTPONED":
+          return 2;
+        case "COMPLETED":
+          return 3;
+        case "CANCELLED":
+        case "VOID":
+          return 4;
+        default:
+          return 5;
+      }
+    };
+
+    const weightA = getStatusWeight(a.status);
+    const weightB = getStatusWeight(b.status);
+
+    if (weightA !== weightB) {
+      return weightA - weightB;
+    }
+
+    // Within same weight:
+    const timeA = a.matchTime ? new Date(a.matchTime).getTime() : 0;
+    const timeB = b.matchTime ? new Date(b.matchTime).getTime() : 0;
+
+    // If both are live or upcoming, sort by time ascending
+    if (weightA === 1 || weightA === 2) {
+      if (!timeA && timeB) return 1;
+      if (timeA && !timeB) return -1;
+      if (!timeA && !timeB) return 0;
+      return timeA - timeB;
+    }
+
+    // If both are completed or cancelled/void, sort by time descending
+    if (weightA === 3 || weightA === 4) {
+      return timeB - timeA;
+    }
+
+    return timeA - timeB;
+  });
+
   return (
     <div className="space-y-6">
       <RealTimePoll />

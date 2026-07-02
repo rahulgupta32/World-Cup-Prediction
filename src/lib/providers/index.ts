@@ -15,6 +15,8 @@ export type NormalizedFixture = {
   teamBScore?: number | null;
   decidedBy?: "NORMAL_TIME" | "EXTRA_TIME" | "PENALTIES" | "CANCELLED" | "VOID";
   winnerTeam?: string | null;
+  penaltyTeamAScore?: number | null;
+  penaltyTeamBScore?: number | null;
   raw?: unknown;
 };
 
@@ -22,6 +24,7 @@ import { fetchWorldCupFixtures } from "./worldcup";
 import { fetchApiFootballFixtures } from "./apifootball";
 import { fetchTheStatsApiFixtures } from "./thestatsapi";
 import { fetchKickoffApiFixtures } from "./kickoffapi";
+import { fetchFotMobFixtures } from "./fotmob";
 
 export async function fetchFixtures(provider: string): Promise<{ success: boolean; error?: string; fixtures: NormalizedFixture[] }> {
   switch (provider) {
@@ -33,6 +36,8 @@ export async function fetchFixtures(provider: string): Promise<{ success: boolea
       return fetchTheStatsApiFixtures();
     case "kickoffapi":
       return fetchKickoffApiFixtures();
+    case "fotmob":
+      return fetchFotMobFixtures();
     default:
       return { success: false, error: "Invalid provider selected.", fixtures: [] };
   }

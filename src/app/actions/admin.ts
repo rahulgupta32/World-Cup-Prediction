@@ -677,7 +677,7 @@ export async function syncKnockoutFixturesWithApi() {
   }
 }
 
-export async function reconcileFixtures(provider: string, apply: boolean) {
+export async function reconcileFixtures(provider: string, apply: boolean, rawJson?: string) {
   const { authenticated } = await verifyAdminAction();
   if (!authenticated) {
     return { success: false, error: "Unauthorized. Admin privileges required." };
@@ -685,7 +685,7 @@ export async function reconcileFixtures(provider: string, apply: boolean) {
 
   try {
     const { auditAndReconcileFixtures } = require("@/lib/match-reconcile");
-    const res = await auditAndReconcileFixtures(provider, apply);
+    const res = await auditAndReconcileFixtures(provider, apply, rawJson);
 
     if (apply && res.success) {
       try {
@@ -706,4 +706,16 @@ export async function reconcileFixtures(provider: string, apply: boolean) {
     console.error("Fixture reconciliation action fatal error:", error);
     return { success: false, error: `Failed to reconcile fixtures: ${error.message || error}` };
   }
+}
+
+export async function getFotmobConfigStatus() {
+  const { authenticated } = await verifyAdminAction();
+  if (!authenticated) {
+    return { baseUrlPresent: false, apiKeyPresent: false, leagueIdPresent: false };
+  }
+  return {
+    baseUrlPresent: !!process.env.FOTMOB_BASE_URL,
+    apiKeyPresent: !!process.env.FOTMOB_API_KEY,
+    leagueIdPresent: !!(process.env.FOTMOB_LEAGUE_ID || process.env.FOTMOB_TOURNAMENT_ID),
+  };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useActionState } from "react";
+import { useState, useTransition, useActionState, useEffect } from "react";
 import { 
   createMatch, 
   updateMatch, 
@@ -9,7 +9,8 @@ import {
   triggerRecalculate,
   syncMatchesWithApi,
   syncKnockoutFixturesWithApi,
-  reconcileFixtures
+  reconcileFixtures,
+  getFotmobConfigStatus
 } from "@/app/actions/admin";
 import { 
   Settings, 
@@ -351,6 +352,13 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
     });
   };
 
+  const [fotmobRawJson, setFotmobRawJson] = useState("");
+  const [configStatus, setConfigStatus] = useState<{ baseUrlPresent: boolean; apiKeyPresent: boolean; leagueIdPresent: boolean } | null>(null);
+
+  useEffect(() => {
+    getFotmobConfigStatus().then(setConfigStatus).catch(console.error);
+  }, []);
+
   const handleReconcile = async (provider: string, apply: boolean) => {
     setActionError(null);
     setActionSuccess(null);
@@ -361,7 +369,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
 
     startSyncTransition(async () => {
       try {
-        const res = await reconcileFixtures(provider, apply);
+        const res = await reconcileFixtures(provider, apply, provider === "fotmob" ? fotmobRawJson : undefined);
         if (res.success) {
           setActionSuccess(apply ? "Safe fixture updates applied successfully!" : "Fixture audit completed! Review the comparison below.");
           setReconcileResult(res);
@@ -1320,9 +1328,53 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                     <option value="apifootball">API-Football</option>
                     <option value="thestatsapi">TheStatsAPI</option>
                     <option value="kickoffapi">KickoffAPI</option>
+                    <option value="fotmob">FotMob</option>
                     <option value="all">All Providers (Audit Mode)</option>
                   </select>
                 </div>
+
+                {selectedProvider === "fotmob" && (
+                  <div className="space-y-2.5">
+                    {/* FotMob Configuration Status block */}
+                    <div className="space-y-1.5 p-3 bg-slate-950 border border-slate-850 rounded-xl">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">FotMob Integration Status</span>
+                      <div className="grid grid-cols-2 gap-2 text-[9px] text-slate-350">
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`h-1.5 w-1.5 rounded-full ${configStatus?.baseUrlPresent ? "bg-emerald-500" : "bg-red-400 animate-pulse"}`} />
+                          <span>FOTMOB_BASE_URL: {configStatus?.baseUrlPresent ? "configured" : "missing"}</span>
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`h-1.5 w-1.5 rounded-full ${configStatus?.apiKeyPresent ? "bg-emerald-500" : "bg-slate-600"}`} />
+                          <span>FOTMOB_API_KEY: {configStatus?.apiKeyPresent ? "configured" : "missing"}</span>
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`h-1.5 w-1.5 rounded-full ${configStatus?.leagueIdPresent ? "bg-emerald-500" : "bg-slate-600"}`} />
+                          <span>FOTMOB_LEAGUE_ID: {configStatus?.leagueIdPresent ? "configured" : "missing"}</span>
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          <span>Manual JSON mode available: yes</span>
+                        </div>
+                      </div>
+                      {!configStatus?.baseUrlPresent && (
+                        <p className="text-[8.5px] text-amber-400 italic leading-relaxed mt-1">
+                          FotMob provider is not configured. Configure FOTMOB_BASE_URL or use Manual JSON Import mode below.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Manual JSON textarea */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase font-bold text-slate-500 block">Paste raw FotMob fixture JSON</label>
+                      <textarea
+                        value={fotmobRawJson}
+                        onChange={(e) => setFotmobRawJson(e.target.value)}
+                        placeholder="Paste raw FotMob API response JSON here to run reconciliation offline/fallback..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] text-slate-350 outline-none focus:border-emerald-500 h-16 font-mono resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Audit Buttons Row */}
                 <div className="grid grid-cols-3 gap-1.5">
@@ -1332,7 +1384,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                     className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
                     title="Fetch raw provider fixtures"
                   >
-                    <span>Fetch Fixtures</span>
+                    <span>Fetch Provider Fixtures</span>
                   </button>
                   <button
                     onClick={() => handleReconcile(selectedProvider, false)}
@@ -1340,15 +1392,15 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                     className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
                     title="Run difference audit"
                   >
-                    <span>Run Audit</span>
+                    <span>Run Fixture Audit</span>
                   </button>
                   <button
                     onClick={() => handleReconcile(selectedProvider, false)}
                     disabled={isSyncPending || isActionPending}
                     className="flex items-center px-1.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-50 font-bold text-[9px] cursor-pointer transition-all active:scale-95 justify-center"
-                    title="Run fixture reconciliation"
+                    title="Compile full fixture list"
                   >
-                    <span>Reconcile</span>
+                    <span>Compile Full Fixture List</span>
                   </button>
                 </div>
 
@@ -1360,7 +1412,7 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                   title="Apply safe fixture updates"
                 >
                   <CheckSquare className="h-4 w-4" />
-                  <span>Apply Safe Updates</span>
+                  <span>Apply Safe Fixture Updates</span>
                 </button>
               </div>
             </div>
@@ -1540,32 +1592,56 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 Fixture Reconciliation Report ({reconcileResult.summary.updatesApplied} Applied / {reconcileResult.summary.safeUpdatesIdentified} Safe Updates Identified)
               </h3>
               
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pb-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pb-2 text-[10px]">
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Scanned (Local)</span>
-                  <span className="text-lg font-black text-slate-100">{reconcileResult.summary.totalLocalScanned}</span>
+                  <span className="text-slate-500 font-bold uppercase">Scanned (Local)</span>
+                  <span className="text-lg font-black text-slate-100 mt-0.5">{reconcileResult.summary.totalLocalScanned}</span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Fetched (API)</span>
-                  <span className="text-lg font-black text-slate-100">{reconcileResult.summary.totalApiFixtures}</span>
+                  <span className="text-slate-500 font-bold uppercase">Imported (API)</span>
+                  <span className="text-lg font-black text-slate-100 mt-0.5">{reconcileResult.summary.totalApiFixtures}</span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Safe Updates</span>
-                  <span className="text-lg font-black text-emerald-450">{reconcileResult.summary.safeUpdatesIdentified}</span>
+                  <span className="text-slate-500 font-bold uppercase">Local Placeholders</span>
+                  <span className="text-lg font-black text-slate-100 mt-0.5">{reconcileResult.summary.placeholdersFound}</span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Conflicts</span>
-                  <span className={`text-lg font-black ${reconcileResult.summary.providerConflicts > 0 ? "text-red-400 font-black animate-pulse" : "text-slate-450"}`}>
+                  <span className="text-slate-500 font-bold uppercase">Provider Placeholders</span>
+                  <span className="text-lg font-black text-slate-100 mt-0.5">{reconcileResult.summary.providerPlaceholders}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Matched Existing</span>
+                  <span className="text-lg font-black text-slate-100 mt-0.5">{reconcileResult.summary.matchedExisting}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Safe Updates</span>
+                  <span className="text-lg font-black text-emerald-450 mt-0.5">{reconcileResult.summary.safeUpdatesIdentified}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Missing Local</span>
+                  <span className="text-lg font-black text-blue-400 mt-0.5">{reconcileResult.summary.missingLocal}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Insert Candidates</span>
+                  <span className="text-lg font-black text-emerald-450 mt-0.5">{reconcileResult.summary.insertCandidates}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Conflicts</span>
+                  <span className={`text-lg font-black mt-0.5 ${reconcileResult.summary.providerConflicts > 0 ? "text-red-400 animate-pulse" : "text-slate-450"}`}>
                     {reconcileResult.summary.providerConflicts}
                   </span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Ambiguous Skipped</span>
-                  <span className="text-lg font-black text-amber-500">{reconcileResult.summary.ambiguousSkipped}</span>
+                  <span className="text-slate-500 font-bold uppercase">Ambiguous Skipped</span>
+                  <span className="text-lg font-black text-amber-500 mt-0.5">{reconcileResult.summary.ambiguousSkipped}</span>
                 </div>
                 <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Risky Skipped</span>
-                  <span className="text-lg font-black text-red-400">{reconcileResult.summary.riskySkipped}</span>
+                  <span className="text-slate-500 font-bold uppercase">Risky/Duplicates</span>
+                  <span className="text-lg font-black text-red-400 mt-0.5">{reconcileResult.summary.riskySkipped}</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-850 rounded-xl flex flex-col">
+                  <span className="text-slate-500 font-bold uppercase">Applied Updates</span>
+                  <span className="text-lg font-black text-emerald-450 mt-0.5">{reconcileResult.summary.updatesApplied}</span>
                 </div>
               </div>
 
@@ -1573,10 +1649,9 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                 <table className="w-full text-[11px] text-slate-350 border-collapse">
                   <thead>
                     <tr className="bg-slate-950 border-b border-slate-800 text-left font-bold text-slate-400 uppercase tracking-wider sticky top-0 z-10">
-                      <th className="py-2.5 px-3">Local Match</th>
-                      <th className="py-2.5 px-3">API Match</th>
-                      <th className="py-2.5 px-3">Current Kickoff</th>
-                      <th className="py-2.5 px-3">Proposed Kickoff</th>
+                      <th className="py-2.5 px-3">Local vs Proposed Match</th>
+                      <th className="py-2.5 px-3">Stage (Current vs Prop)</th>
+                      <th className="py-2.5 px-3">Kickoff (Current vs Prop)</th>
                       <th className="py-2.5 px-3">Provider</th>
                       <th className="py-2.5 px-3 text-center">Confidence</th>
                       <th className="py-2.5 px-3 text-center">Action/Status</th>
@@ -1587,45 +1662,63 @@ export default function AdminPanel({ initialMatches, users }: AdminPanelProps) {
                     {reconcileResult.items.map((item: any, idx: number) => (
                       <tr key={idx} className="hover:bg-slate-950/40">
                         <td className="py-2 px-3">
-                          {item.currentTeamA ? (
-                            <span className="font-bold text-slate-200">{item.currentTeamA} vs {item.currentTeamB}</span>
-                          ) : (
-                            <span className="italic text-slate-500">Not Found (Local)</span>
-                          )}
-                          {item.localId && <span className="block text-[8px] text-slate-500 font-mono">ID: {item.localId}</span>}
+                          <div className="flex flex-col">
+                            {item.currentTeamA ? (
+                              <span className="font-bold text-slate-200">{item.currentTeamA} vs {item.currentTeamB}</span>
+                            ) : (
+                              <span className="italic text-slate-500">Not Found (Local)</span>
+                            )}
+                            {item.proposedTeamA && (item.proposedTeamA !== item.currentTeamA || item.proposedTeamB !== item.currentTeamB) && (
+                              <span className="text-[10px] text-emerald-400 font-semibold mt-0.5">
+                                → {item.proposedTeamA} vs {item.proposedTeamB}
+                              </span>
+                            )}
+                            {item.localId && <span className="block text-[8px] text-slate-550 font-mono mt-0.5">Local ID: {item.localId}</span>}
+                          </div>
                         </td>
-                        <td className="py-2 px-3 font-semibold text-slate-300">
-                          {item.proposedTeamA ? `${item.proposedTeamA} vs ${item.proposedTeamB}` : <span className="italic text-slate-500">Not Found (API)</span>}
+                        <td className="py-2 px-3">
+                          <div className="flex flex-col">
+                            <span className="text-slate-400 font-medium">{item.currentStage || "—"}</span>
+                            {item.stageChanged && (
+                              <span className="text-[10px] text-emerald-450 font-bold mt-0.5">
+                                → {item.proposedStage} {item.proposedIsKnockout ? "(KO)" : "(Group)"}
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-2 px-3 font-mono text-slate-450">
-                          {item.currentKickoff ? new Date(item.currentKickoff).toLocaleString() : "—"}
+                        <td className="py-2 px-3 font-mono text-[10px]">
+                          <div className="flex flex-col">
+                            <span className="text-slate-450">{item.currentKickoff ? new Date(item.currentKickoff).toLocaleString() : "—"}</span>
+                            {item.proposedKickoff && item.proposedKickoff !== item.currentKickoff && (
+                              <span className="text-emerald-400 font-semibold mt-0.5">
+                                → {new Date(item.proposedKickoff).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-2 px-3 font-mono text-slate-350">
-                          {item.proposedKickoff ? new Date(item.proposedKickoff).toLocaleString() : "—"}
-                        </td>
-                        <td className="py-2 px-3 text-slate-400 capitalize font-semibold">
-                          {item.provider}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                            item.confidence === "None" ? "bg-slate-800 text-slate-400" : "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20"
-                          }`}>
-                            {item.confidence}
-                          </span>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-col text-[10px]">
+                            <span className="text-slate-300 capitalize font-bold">{item.provider}</span>
+                            <span className="text-[9px] text-slate-500 font-semibold">{item.confidence}</span>
+                          </div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
-                            item.action === "UPDATE" ? (reconcileResult.summary.updatesApplied > 0 ? "bg-emerald-500 text-slate-950" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30") :
-                            item.action === "RISKY" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse" :
+                            item.action === "SAFE_UPDATE_EXISTING" ? (reconcileResult.summary.updatesApplied > 0 ? "bg-emerald-500 text-slate-950" : "bg-emerald-500/20 text-emerald-450 border border-emerald-500/30") :
+                            item.action === "MATCHED_EXISTING" ? "bg-slate-800 text-slate-400 border border-slate-700/60" :
+                            item.action === "MISSING_LOCAL_FIXTURE" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
+                            item.action === "POSSIBLE_DUPLICATE" ? "bg-amber-500/20 text-amber-405 border border-amber-500/30" :
+                            item.action === "AMBIGUOUS_MATCH" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" :
                             item.action === "PROVIDER_CONFLICT" ? "bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse" :
-                            item.action === "AMBIGUOUS" ? "bg-amber-500/20 text-amber-405 border border-amber-500/30" :
-                            item.action === "CREATE" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
-                            "bg-slate-800/80 text-slate-400"
+                            item.action === "PROVIDER_STILL_TBD" ? "bg-slate-850 text-slate-550 border border-slate-800" :
+                            "bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse" // RISKY_MANUAL_REVIEW
                           }`}>
-                            {item.action === "UPDATE" && reconcileResult.summary.updatesApplied > 0 ? "APPLIED" : item.action}
+                            {item.action === "SAFE_UPDATE_EXISTING" && reconcileResult.summary.updatesApplied > 0 ? "APPLIED" : 
+                             item.action === "MISSING_LOCAL_FIXTURE" && reconcileResult.summary.updatesApplied > 0 ? "INSERTED" : 
+                             item.action}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-slate-400 max-w-xs truncate" title={item.reason}>
+                        <td className="py-2 px-3 text-slate-400" title={item.reason}>
                           {item.reason}
                         </td>
                       </tr>

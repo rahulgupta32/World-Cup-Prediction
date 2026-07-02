@@ -140,9 +140,9 @@ export default function MatchesList({ initialMatches, currentUserId, searchParam
   }, [searchParamsPredictId, initialMatches, clientNow]);
 
   // Filters matches by tab
-  const upcomingMatches = matches.filter(m => m.status === "UPCOMING" || m.status === "POSTPONED");
-  const liveMatches = matches.filter(m => m.status === "LIVE");
-  const completedMatches = matches.filter(m => m.status === "COMPLETED" || m.status === "CANCELLED");
+  const upcomingMatches = matches.filter(m => m.status === "UPCOMING" || (m.status as string) === "SCHEDULED" || m.status === "POSTPONED");
+  const liveMatches = matches.filter(m => m.status === "LIVE" || (m.status as string) === "IN_PROGRESS");
+  const completedMatches = matches.filter(m => m.status === "COMPLETED" || m.status === "CANCELLED" || (m.status as string) === "VOID");
 
   const filteredMatches = 
     activeTab === "upcoming" ? upcomingMatches :

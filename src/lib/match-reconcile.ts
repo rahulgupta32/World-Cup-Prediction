@@ -15,9 +15,22 @@ export type ReconcileItem = {
   proposedTeamB: string | null;
   currentKickoff: string | null; // ISO
   proposedKickoff: string | null; // ISO
+  currentStage?: string | null;
+  proposedStage?: string | null;
+  stageChanged?: boolean;
+  currentIsKnockout?: boolean;
+  proposedIsKnockout?: boolean;
   provider: string;
   confidence: string; // "Priority 1" | "Priority 3" | ...
-  action: "UPDATE" | "SKIP" | "AMBIGUOUS" | "RISKY" | "CREATE" | "PROVIDER_CONFLICT";
+  action: 
+    | "MATCHED_EXISTING"
+    | "SAFE_UPDATE_EXISTING"
+    | "MISSING_LOCAL_FIXTURE"
+    | "POSSIBLE_DUPLICATE"
+    | "AMBIGUOUS_MATCH"
+    | "PROVIDER_CONFLICT"
+    | "PROVIDER_STILL_TBD"
+    | "RISKY_MANUAL_REVIEW";
   reason: string;
 };
 
@@ -28,14 +41,14 @@ export function isPlaceholderTeam(name: string | null | undefined): boolean {
     clean === "" ||
     clean === "tbd" ||
     clean === "tbc" ||
-    clean === "to be determined" ||
-    clean === "null" ||
-    clean.includes("winner match") ||
-    clean.includes("winner of match") ||
-    clean.includes("runner-up group") ||
-    clean.includes("winner group") ||
-    clean.includes("2nd group") ||
-    clean.includes("group winner")
+    clean.includes("tbd") ||
+    clean.includes("tbc") ||
+    clean.includes("to be determined") ||
+    clean.includes("winner") ||
+    clean.includes("runner-up") ||
+    clean.includes("runner up") ||
+    clean.includes("group") ||
+    clean.includes("loser")
   );
 }
 
@@ -51,19 +64,23 @@ function findEquivalentFixture(primary: NormalizedFixture, fallbackList: Normali
 
 export async function auditAndReconcileFixtures(
   providerSelection: string = "worldcup", 
-  applyUpdate: boolean = false
+  applyUpdate: boolean = false,
+  rawJson?: string
 ) {
   const summary = {
     providerUsed: providerSelection,
     totalApiFixtures: 0,
     totalLocalScanned: 0,
     placeholdersFound: 0,
+    providerPlaceholders: 0,
+    matchedExisting: 0,
     safeUpdatesIdentified: 0,
     updatesApplied: 0,
     ambiguousSkipped: 0,
     riskySkipped: 0,
     providerConflicts: 0,
     missingLocal: 0,
+    insertCandidates: 0,
     errors: [] as string[],
   };
 
@@ -71,11 +88,11 @@ export async function auditAndReconcileFixtures(
 
   try {
     // 1. Determine active providers and fetch their data
-    const activeProviders = ["worldcup", "apifootball", "thestatsapi", "kickoffapi"];
+    const activeProviders = ["worldcup", "apifootball", "thestatsapi", "kickoffapi", "fotmob"];
     const fetchedDataMap = new Map<string, NormalizedFixture[]>();
 
-    // If selected provider is not "all", verify key is configured (unless it's worldcup)
-    if (providerSelection !== "all" && providerSelection !== "worldcup") {
+    // If selected provider is not "all", verify key is configured (unless it's worldcup/fotmob)
+    if (providerSelection !== "all" && providerSelection !== "worldcup" && providerSelection !== "fotmob") {
       const key = 
         providerSelection === "apifootball" ? (process.env.API_FOOTBALL_KEY || process.env.FOOTBALL_API_KEY) :
         providerSelection === "thestatsapi" ? process.env.THE_STATS_API_KEY :
@@ -88,12 +105,52 @@ export async function auditAndReconcileFixtures(
 
     // Fetch primary / selected provider
     if (providerSelection !== "all") {
-      console.log(`[RECONCILE] Fetching fixtures from primary provider: ${providerSelection}`);
-      const res = await fetchFixtures(providerSelection);
-      if (!res.success) {
-        return { success: false, error: res.error || `Failed to fetch from ${providerSelection}`, summary, items };
+      if (providerSelection === "fotmob" && rawJson && rawJson.trim() !== "") {
+        console.log("[RECONCILE] Using pasted raw JSON for FotMob provider.");
+        try {
+          const { findMatchesArray, normalizeFotMobMatch } = require("./providers/fotmob");
+          const parsed = JSON.parse(rawJson);
+          const rawMatches = findMatchesArray(parsed);
+          if (!rawMatches || !Array.isArray(rawMatches)) {
+            return { success: false, error: "No fixtures found in pasted JSON. Please verify the FotMob payload structure.", summary, items };
+          }
+          const fixtures: NormalizedFixture[] = [];
+          for (const item of rawMatches) {
+            const normalized = normalizeFotMobMatch(item);
+            if (normalized) fixtures.push(normalized);
+          }
+          fetchedDataMap.set("fotmob", fixtures);
+        } catch (e: any) {
+          return { success: false, error: `Failed to parse manual JSON import: ${e.message || e}`, summary, items };
+        }
+      } else {
+        if (providerSelection === "fotmob") {
+          const { checkCooldown, setCooldown } = require("./providers/cooldown");
+          const cooldownCheck = await checkCooldown();
+          if (!cooldownCheck.allowed) {
+            return { 
+              success: false, 
+              error: `Please wait ${cooldownCheck.remainingSec} seconds before fetching FotMob data again.`, 
+              summary, 
+              items 
+            };
+          }
+          console.log(`[RECONCILE] Fetching fixtures from FotMob API...`);
+          const res = await fetchFixtures("fotmob");
+          if (!res.success) {
+            return { success: false, error: res.error || "Failed to fetch from FotMob", summary, items };
+          }
+          fetchedDataMap.set("fotmob", res.fixtures);
+          await setCooldown();
+        } else {
+          console.log(`[RECONCILE] Fetching fixtures from primary provider: ${providerSelection}`);
+          const res = await fetchFixtures(providerSelection);
+          if (!res.success) {
+            return { success: false, error: res.error || `Failed to fetch from ${providerSelection}`, summary, items };
+          }
+          fetchedDataMap.set(providerSelection, res.fixtures);
+        }
       }
-      fetchedDataMap.set(providerSelection, res.fixtures);
     } else {
       // Fetch all configured providers
       console.log("[RECONCILE] Fetching from all configured providers...");
@@ -104,11 +161,23 @@ export async function auditAndReconcileFixtures(
           p === "kickoffapi" ? process.env.KICKOFF_API_KEY : "has_no_key_required";
 
         if (key) {
-          const res = await fetchFixtures(p);
-          if (res.success) {
-            fetchedDataMap.set(p, res.fixtures);
+          if (p === "fotmob") {
+            const { checkCooldown, setCooldown } = require("./providers/cooldown");
+            const cooldownCheck = await checkCooldown();
+            if (cooldownCheck.allowed) {
+              const res = await fetchFixtures(p);
+              if (res.success) {
+                fetchedDataMap.set(p, res.fixtures);
+                await setCooldown();
+              }
+            }
           } else {
-            console.warn(`[RECONCILE] Fallback provider ${p} failed: ${res.error}`);
+            const res = await fetchFixtures(p);
+            if (res.success) {
+              fetchedDataMap.set(p, res.fixtures);
+            } else {
+              console.warn(`[RECONCILE] Fallback provider ${p} failed: ${res.error}`);
+            }
           }
         }
       }
@@ -117,12 +186,18 @@ export async function auditAndReconcileFixtures(
     // Identify primary list of API fixtures
     let primaryProvider = providerSelection === "all" ? "worldcup" : providerSelection;
     if (providerSelection === "all" && !fetchedDataMap.has(primaryProvider)) {
-      // Pick first successfully fetched provider as primary
       primaryProvider = Array.from(fetchedDataMap.keys())[0] || "worldcup";
     }
 
     const primaryFixtures = fetchedDataMap.get(primaryProvider) || [];
     summary.totalApiFixtures = primaryFixtures.length;
+
+    // Count provider placeholders
+    primaryFixtures.forEach(f => {
+      if (isPlaceholderTeam(f.teamA) || isPlaceholderTeam(f.teamB)) {
+        summary.providerPlaceholders++;
+      }
+    });
 
     // Collect fallback fixtures from other active providers
     const fallbackProvidersList: { name: string; fixtures: NormalizedFixture[] }[] = [];
@@ -141,7 +216,7 @@ export async function auditAndReconcileFixtures(
 
     summary.totalLocalScanned = dbMatches.length;
 
-    // Count placeholders
+    // Count local placeholders
     dbMatches.forEach(m => {
       if (isPlaceholderTeam(m.teamA) || isPlaceholderTeam(m.teamB)) {
         summary.placeholdersFound++;
@@ -220,7 +295,44 @@ export async function auditAndReconcileFixtures(
 
       // Scenario A: Missing local match
       if (cands.length === 0) {
-        summary.missingLocal++;
+        // Enforce safe insert checks
+        const hasSameTeamsTime = dbMatches.some(m => {
+          const apiA = normalizeTeamName(apiMatch.teamA || "");
+          const apiB = normalizeTeamName(apiMatch.teamB || "");
+          const dbA = normalizeTeamName(m.teamA);
+          const dbB = normalizeTeamName(m.teamB);
+          const teamsMatch = (apiA === dbA && apiB === dbB) || (apiA === dbB && apiB === dbA);
+          const timeDiff = apiMatch.kickoffTime ? Math.abs(new Date(m.matchTime).getTime() - new Date(apiMatch.kickoffTime).getTime()) : Infinity;
+          return teamsMatch && timeDiff <= 2 * 60 * 60 * 1000; // within 2 hours
+        });
+
+        const hasPlaceholderRepresenting = dbMatches.some(m => {
+          const sameStage = m.stage === apiMatch.stage;
+          const timeDiff = apiMatch.kickoffTime ? Math.abs(new Date(m.matchTime).getTime() - new Date(apiMatch.kickoffTime).getTime()) : Infinity;
+          const localHasPlaceholder = isPlaceholderTeam(m.teamA) || isPlaceholderTeam(m.teamB);
+          return sameStage && localHasPlaceholder && timeDiff <= 2 * 60 * 60 * 1000;
+        });
+
+        const hasSameApiId = dbMatches.some(m => m.apiMatchId === apiMatch.providerMatchId);
+
+        let action: "MISSING_LOCAL_FIXTURE" | "POSSIBLE_DUPLICATE" = "MISSING_LOCAL_FIXTURE";
+        let reason = "No local placeholder or match found matching stage or teams. Safe to insert.";
+
+        if (hasSameApiId || hasSameTeamsTime) {
+          action = "POSSIBLE_DUPLICATE";
+          reason = `Possible duplicate of an existing local fixture (same API ID or teams at kickoff time).`;
+        } else if (hasPlaceholderRepresenting) {
+          action = "POSSIBLE_DUPLICATE";
+          reason = `A local TBD placeholder already represents this slot (same stage & kickoff time).`;
+        }
+
+        if (action === "POSSIBLE_DUPLICATE") {
+          summary.riskySkipped++;
+        } else {
+          summary.missingLocal++;
+          summary.insertCandidates++;
+        }
+
         items.push({
           localId: null,
           apiId: apiMatch.providerMatchId,
@@ -230,11 +342,48 @@ export async function auditAndReconcileFixtures(
           proposedTeamB: apiMatch.teamB,
           currentKickoff: null,
           proposedKickoff: apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).toISOString() : null,
+          currentStage: null,
+          proposedStage: apiMatch.stage,
+          stageChanged: true,
+          currentIsKnockout: false,
+          proposedIsKnockout: apiMatch.stage !== "GROUP",
           provider: primaryProvider,
           confidence: "None",
-          action: "CREATE",
-          reason: "No local placeholder or match found matching stage or teams.",
+          action,
+          reason,
         });
+
+        // Insert genuinely missing fixture on Apply mode
+        if (applyUpdate && action === "MISSING_LOCAL_FIXTURE") {
+          const canonicalA = getCanonicalTeamName(apiMatch.teamA || "");
+          const canonicalB = getCanonicalTeamName(apiMatch.teamB || "");
+          const sortedTeams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
+          const kickoff = apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime) : new Date();
+          const dateKey = kickoff.toISOString().split("T")[0];
+
+          await prisma.match.create({
+            data: {
+              teamA: canonicalA,
+              teamB: canonicalB,
+              normalizedTeamA: sortedTeams[0],
+              normalizedTeamB: sortedTeams[1],
+              matchDateKey: dateKey,
+              apiProvider: primaryProvider,
+              apiMatchId: apiMatch.providerMatchId,
+              matchTime: kickoff,
+              predictionDeadline: kickoff,
+              stage: apiMatch.stage as MatchStage,
+              isKnockout: apiMatch.stage !== "GROUP",
+              status: apiMatch.status as MatchStatus || "UPCOMING",
+              venue: apiMatch.venue || "",
+              decidedBy: apiMatch.decidedBy || "NORMAL_TIME",
+              winnerTeam: apiMatch.winnerTeam,
+              penaltyTeamAScore: apiMatch.penaltyTeamAScore,
+              penaltyTeamBScore: apiMatch.penaltyTeamBScore,
+            }
+          });
+          summary.updatesApplied++;
+        }
         continue;
       }
 
@@ -251,9 +400,14 @@ export async function auditAndReconcileFixtures(
             proposedTeamB: apiMatch.teamB,
             currentKickoff: new Date(cand.m.matchTime).toISOString(),
             proposedKickoff: apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).toISOString() : null,
+            currentStage: cand.m.stage,
+            proposedStage: apiMatch.stage,
+            stageChanged: cand.m.stage !== apiMatch.stage,
+            currentIsKnockout: cand.m.isKnockout,
+            proposedIsKnockout: apiMatch.stage !== "GROUP",
             provider: primaryProvider,
             confidence: `Priority ${cand.priority}`,
-            action: "AMBIGUOUS",
+            action: "AMBIGUOUS_MATCH",
             reason: `Multiple local matches fit this API fixture (Ambiguous candidates: ${cands.map(c => c.m.id).join(", ")})`,
           });
         });
@@ -277,9 +431,14 @@ export async function auditAndReconcileFixtures(
           proposedTeamB: apiMatch.teamB,
           currentKickoff: new Date(dbMatch.matchTime).toISOString(),
           proposedKickoff: apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).toISOString() : null,
+          currentStage: dbMatch.stage,
+          proposedStage: apiMatch.stage,
+          stageChanged: dbMatch.stage !== apiMatch.stage,
+          currentIsKnockout: dbMatch.isKnockout,
+          proposedIsKnockout: apiMatch.stage !== "GROUP",
           provider: primaryProvider,
           confidence: `Priority ${cand.priority}`,
-          action: "AMBIGUOUS",
+          action: "AMBIGUOUS_MATCH",
           reason: `Local match matches multiple API fixtures (Claimed by API IDs: ${claims.join(", ")})`,
         });
         continue;
@@ -309,7 +468,6 @@ export async function auditAndReconcileFixtures(
       const nonTbdFallbacks = fallbackDetails.filter(d => !isPlaceholderTeam(d.teamA) && !isPlaceholderTeam(d.teamB));
       
       if (!primaryIsTbd) {
-        // Primary is NOT TBD. But verify if any fallback disagrees with the primary
         const conflictingFallbacks = nonTbdFallbacks.filter(d => 
           normalizeTeamName(d.teamA || "") !== normalizeTeamName(apiMatch.teamA || "") ||
           normalizeTeamName(d.teamB || "") !== normalizeTeamName(apiMatch.teamB || "")
@@ -319,9 +477,7 @@ export async function auditAndReconcileFixtures(
           conflictReason = `Provider Conflict: ${primaryProvider} shows '${apiMatch.teamA} vs ${apiMatch.teamB}', ${conflictingFallbacks.map(f => `${f.provider} shows '${f.teamA} vs ${f.teamB}'`).join(", ")}`;
         }
       } else {
-        // Primary IS TBD. Check if fallbacks have real team names!
         if (nonTbdFallbacks.length > 0) {
-          // Verify if they agree amongst themselves
           const first = nonTbdFallbacks[0];
           const disagrees = nonTbdFallbacks.filter(d => 
             normalizeTeamName(d.teamA || "") !== normalizeTeamName(first.teamA || "") ||
@@ -332,7 +488,6 @@ export async function auditAndReconcileFixtures(
             hasConflict = true;
             conflictReason = `Provider Conflict (TBD fallback mismatch): ${nonTbdFallbacks.map(f => `${f.provider} shows '${f.teamA} vs ${f.teamB}'`).join(", ")}`;
           } else {
-            // They agree on real names! Safe update from fallback provider.
             finalProposedA = first.teamA;
             finalProposedB = first.teamB;
             activeProviderSource = first.provider;
@@ -340,7 +495,7 @@ export async function auditAndReconcileFixtures(
         }
       }
 
-      // Check if update is risky (changing real team names when predictions exist)
+      // Check for updates or risks
       const isLocalPlaceholder = isPlaceholderTeam(dbMatch.teamA) || isPlaceholderTeam(dbMatch.teamB);
       const isApiPlaceholder = isPlaceholderTeam(finalProposedA) || isPlaceholderTeam(finalProposedB);
       
@@ -350,42 +505,64 @@ export async function auditAndReconcileFixtures(
 
       const predictionCount = dbMatch.predictions.length;
 
-      let action: "UPDATE" | "SKIP" | "RISKY" | "PROVIDER_CONFLICT" = "SKIP";
+      let action: 
+        | "MATCHED_EXISTING"
+        | "SAFE_UPDATE_EXISTING"
+        | "PROVIDER_CONFLICT"
+        | "PROVIDER_STILL_TBD"
+        | "RISKY_MANUAL_REVIEW" = "MATCHED_EXISTING";
       let reason = "Already up to date and correct.";
+
+      const dbTime = new Date(dbMatch.matchTime).getTime();
+      const apiTime = apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).getTime() : null;
+      const stageChanged = dbMatch.stage !== apiMatch.stage;
 
       if (hasConflict) {
         action = "PROVIDER_CONFLICT";
         reason = conflictReason;
         summary.providerConflicts++;
       } else if (dbMatch.status === MatchStatus.COMPLETED) {
-        action = "SKIP";
+        action = "MATCHED_EXISTING";
         reason = "Match completed. Safe updates locked to prevent result modification.";
+        summary.matchedExisting++;
+      } else if (isApiPlaceholder && isLocalPlaceholder) {
+        if (stageChanged || (apiTime && dbTime !== apiTime)) {
+          action = "SAFE_UPDATE_EXISTING";
+          reason = `Syncing kickoff time/stage for placeholder.`;
+          summary.safeUpdatesIdentified++;
+        } else {
+          action = "PROVIDER_STILL_TBD";
+          reason = "Both local match and provider are still TBD/placeholders.";
+        }
       } else if (!isApiPlaceholder && isLocalPlaceholder) {
-        action = "UPDATE";
+        action = "SAFE_UPDATE_EXISTING";
         reason = activeProviderSource === primaryProvider 
           ? "Replacing TBD placeholder names with confirmed qualified teams."
           : `SAFE_UPDATE_AVAILABLE: Updated placeholder using fallback provider (${activeProviderSource}).`;
+        summary.safeUpdatesIdentified++;
       } else if (!isLocalPlaceholder && namesDiffer) {
         if (predictionCount > 0) {
-          action = "RISKY";
+          action = "RISKY_MANUAL_REVIEW";
           reason = `Fixture has ${predictionCount} active predictions. Changing real team names requires manual admin review.`;
           summary.riskySkipped++;
         } else {
-          action = "UPDATE";
+          action = "SAFE_UPDATE_EXISTING";
           reason = `Updating team names (${activeProviderSource}) (0 predictions, safe to update).`;
+          summary.safeUpdatesIdentified++;
         }
       } else {
-        // Kickoff time differences check
-        const dbTime = new Date(dbMatch.matchTime).getTime();
-        const apiTime = apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).getTime() : null;
         if (apiTime && dbTime !== apiTime) {
-          action = "UPDATE";
+          action = "SAFE_UPDATE_EXISTING";
           reason = `Syncing kickoff date/time with ${activeProviderSource} official schedule.`;
+          summary.safeUpdatesIdentified++;
+        } else if (stageChanged) {
+          action = "SAFE_UPDATE_EXISTING";
+          reason = `Correcting stage value to ${apiMatch.stage}.`;
+          summary.safeUpdatesIdentified++;
+        } else {
+          action = "MATCHED_EXISTING";
+          summary.matchedExisting++;
         }
-      }
-
-      if (action === "UPDATE") {
-        summary.safeUpdatesIdentified++;
       }
 
       items.push({
@@ -397,22 +574,23 @@ export async function auditAndReconcileFixtures(
         proposedTeamB: finalProposedB,
         currentKickoff: new Date(dbMatch.matchTime).toISOString(),
         proposedKickoff: apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).toISOString() : null,
+        currentStage: dbMatch.stage,
+        proposedStage: apiMatch.stage,
+        stageChanged,
+        currentIsKnockout: dbMatch.isKnockout,
+        proposedIsKnockout: apiMatch.stage !== "GROUP",
         provider: activeProviderSource,
         confidence: `Priority ${cand.priority}`,
         action,
         reason,
       });
 
-      // 5. Apply mode updates
-      if (applyUpdate && action === "UPDATE") {
+      // Apply mode updates
+      if (applyUpdate && action === "SAFE_UPDATE_EXISTING") {
         const canonicalA = getCanonicalTeamName(finalProposedA || "");
         const canonicalB = getCanonicalTeamName(finalProposedB || "");
         const sortedTeams = [normalizeTeamName(canonicalA), normalizeTeamName(canonicalB)].sort();
         const dateKey = (apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime) : new Date(dbMatch.matchTime)).toISOString().split("T")[0];
-
-        console.log(`[RECONCILE] Applying update for match ID: ${dbMatch.id} using provider: ${activeProviderSource}`);
-        console.log(`[RECONCILE] Teams. Before: "${dbMatch.teamA} vs ${dbMatch.teamB}". After: "${canonicalA} vs ${canonicalB}"`);
-        console.log(`[RECONCILE] Kickoff. Before: ${new Date(dbMatch.matchTime).toISOString()}. After: ${apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime).toISOString() : "no change"}`);
 
         await prisma.match.update({
           where: { id: dbMatch.id },
@@ -428,14 +606,17 @@ export async function auditAndReconcileFixtures(
             predictionDeadline: apiMatch.kickoffTime ? new Date(apiMatch.kickoffTime) : dbMatch.predictionDeadline,
             stage: apiMatch.stage as MatchStage,
             isKnockout: apiMatch.stage !== MatchStage.GROUP,
+            decidedBy: apiMatch.decidedBy || dbMatch.decidedBy,
+            winnerTeam: apiMatch.winnerTeam || dbMatch.winnerTeam,
+            penaltyTeamAScore: apiMatch.penaltyTeamAScore !== undefined ? apiMatch.penaltyTeamAScore : dbMatch.penaltyTeamAScore,
+            penaltyTeamBScore: apiMatch.penaltyTeamBScore !== undefined ? apiMatch.penaltyTeamBScore : dbMatch.penaltyTeamBScore,
           },
         });
-        
         summary.updatesApplied++;
       }
     }
 
-    // List unmatched local matches (for completeness of report)
+    // List unmatched local matches
     for (const dbMatch of dbMatches) {
       if (!matchedLocalIds.has(dbMatch.id)) {
         items.push({
@@ -447,11 +628,17 @@ export async function auditAndReconcileFixtures(
           proposedTeamB: null,
           currentKickoff: new Date(dbMatch.matchTime).toISOString(),
           proposedKickoff: null,
+          currentStage: dbMatch.stage,
+          proposedStage: null,
+          stageChanged: false,
+          currentIsKnockout: dbMatch.isKnockout,
+          proposedIsKnockout: false,
           provider: "unknown",
           confidence: "None",
-          action: "SKIP",
-          reason: "No matching provider fixture found in API.",
+          action: "MATCHED_EXISTING", // classified as matched/existing since no updates exist
+          reason: "No matching provider fixture found in API. No changes proposed.",
         });
+        summary.matchedExisting++;
       }
     }
 
